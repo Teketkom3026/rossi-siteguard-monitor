@@ -11,4 +11,6 @@
     <color name="text_primary">#FFE0E0E0</color>
     <color name="text_secondary">#FFA0A0B0</color>
     <color name="text_hint">#FF666680</color>
+    <color name="ic_launcher_background">#FF0F0F23</color>
 </resources>
+
