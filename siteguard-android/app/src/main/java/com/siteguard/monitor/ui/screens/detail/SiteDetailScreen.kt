@@ -15,19 +15,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.siteguard.monitor.data.api.models.SiteStatusResponse
 import com.siteguard.monitor.data.repository.MonitorRepository
+import com.siteguard.monitor.di.AppModule
 import com.siteguard.monitor.ui.theme.*
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 data class SiteDetailUiState(
     val isLoading: Boolean = true,
@@ -35,8 +37,7 @@ data class SiteDetailUiState(
     val errorMessage: String? = null
 )
 
-@HiltViewModel
-class SiteDetailViewModel @Inject constructor(
+class SiteDetailViewModel(
     private val monitorRepository: MonitorRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -81,6 +82,16 @@ class SiteDetailViewModel @Inject constructor(
             }
         }
     }
+
+    companion object {
+        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+                val savedStateHandle = extras.createSavedStateHandle()
+                return SiteDetailViewModel(AppModule.provideMonitorRepository(), savedStateHandle) as T
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,7 +99,7 @@ class SiteDetailViewModel @Inject constructor(
 fun SiteDetailScreen(
     siteId: Int,
     onBack: () -> Unit,
-    viewModel: SiteDetailViewModel = hiltViewModel()
+    viewModel: SiteDetailViewModel = viewModel(factory = SiteDetailViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsState()
 

@@ -19,21 +19,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.siteguard.monitor.data.api.models.DashboardResponse
 import com.siteguard.monitor.data.api.models.SiteStatusResponse
 import com.siteguard.monitor.data.repository.MonitorRepository
+import com.siteguard.monitor.di.AppModule
 import com.siteguard.monitor.ui.theme.*
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 // ===== ViewModel =====
 
@@ -44,8 +44,7 @@ data class DashboardUiState(
     val errorMessage: String? = null
 )
 
-@HiltViewModel
-class DashboardViewModel @Inject constructor(
+class DashboardViewModel(
     private val monitorRepository: MonitorRepository
 ) : ViewModel() {
 
@@ -123,6 +122,15 @@ class DashboardViewModel @Inject constructor(
             }
         }
     }
+
+    companion object {
+        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return DashboardViewModel(AppModule.provideMonitorRepository()) as T
+            }
+        }
+    }
 }
 
 // ===== Composable Screen =====
@@ -133,7 +141,7 @@ fun DashboardScreen(
     onSiteClick: (Int) -> Unit,
     onAlertsClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    viewModel: DashboardViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsState()
 

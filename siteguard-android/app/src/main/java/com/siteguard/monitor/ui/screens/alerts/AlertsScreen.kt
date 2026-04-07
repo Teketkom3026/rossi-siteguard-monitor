@@ -15,18 +15,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.siteguard.monitor.data.api.models.AlertResponse
 import com.siteguard.monitor.data.repository.MonitorRepository
+import com.siteguard.monitor.di.AppModule
 import com.siteguard.monitor.ui.theme.*
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 data class AlertsUiState(
     val isLoading: Boolean = true,
@@ -34,8 +34,7 @@ data class AlertsUiState(
     val errorMessage: String? = null
 )
 
-@HiltViewModel
-class AlertsViewModel @Inject constructor(
+class AlertsViewModel(
     private val monitorRepository: MonitorRepository
 ) : ViewModel() {
 
@@ -64,13 +63,22 @@ class AlertsViewModel @Inject constructor(
             }
         }
     }
+
+    companion object {
+        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return AlertsViewModel(AppModule.provideMonitorRepository()) as T
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlertsScreen(
     onBack: () -> Unit,
-    viewModel: AlertsViewModel = hiltViewModel()
+    viewModel: AlertsViewModel = viewModel(factory = AlertsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsState()
 

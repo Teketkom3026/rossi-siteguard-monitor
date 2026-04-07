@@ -20,23 +20,37 @@ interface ApiService {
     suspend fun getPlans(): Response<List<LicensePlanResponse>>
 
     // --- Monitor ---
+    @GET("api/v1/dashboard")
+    suspend fun getDashboard(): Response<DashboardResponse>
+
     @GET("api/v1/sites")
     suspend fun getSites(): Response<List<SiteResponse>>
+
+    @GET("api/v1/sites")
+    suspend fun listSites(): Response<List<SiteResponse>>
 
     @POST("api/v1/sites")
     suspend fun addSite(@Body request: AddSiteRequest): Response<SiteResponse>
 
+    @PUT("api/v1/sites/{id}")
+    suspend fun updateSite(@Path("id") id: Int, @Body request: UpdateSiteRequest): Response<SiteResponse>
+
     @DELETE("api/v1/sites/{id}")
-    suspend fun deleteSite(@Path("id") id: String): Response<Unit>
+    suspend fun deleteSite(@Path("id") id: Int): Response<Unit>
 
     @GET("api/v1/sites/{id}/status")
-    suspend fun getSiteStatus(@Path("id") id: String): Response<SiteStatusResponse>
+    suspend fun getSiteStatus(@Path("id") id: Int): Response<SiteStatusResponse>
+
+    @POST("api/v1/sites/{id}/check")
+    suspend fun triggerCheck(@Path("id") id: Int): Response<Unit>
 
     @GET("api/v1/alerts")
-    suspend fun getAlerts(): Response<List<AlertResponse>>
+    suspend fun getAlerts(
+        @Query("limit") limit: Int = 50,
+        @Query("domain") domain: String? = null
+    ): Response<List<AlertResponse>>
 }
 
 // Backward compatibility aliases
 typealias LicenseApi = ApiService
 typealias MonitorApi = ApiService
-

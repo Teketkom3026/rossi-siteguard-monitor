@@ -9,24 +9,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.rememberNavController
-import com.siteguard.monitor.data.local.PreferencesManager
+import com.siteguard.monitor.di.AppModule
 import com.siteguard.monitor.ui.navigation.SiteGuardNavGraph
 import com.siteguard.monitor.ui.theme.DarkBackground
 import com.siteguard.monitor.ui.theme.SiteGuardTheme
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
-    @Inject
-    lateinit var preferencesManager: PreferencesManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        val preferencesManager = AppModule.providePreferencesManager()
 
         // Check first run
         val isFirstRun = runBlocking {

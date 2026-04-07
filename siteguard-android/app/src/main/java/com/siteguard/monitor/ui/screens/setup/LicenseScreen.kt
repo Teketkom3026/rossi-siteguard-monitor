@@ -19,17 +19,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.siteguard.monitor.data.repository.LicenseRepository
+import com.siteguard.monitor.di.AppModule
 import com.siteguard.monitor.ui.theme.*
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 // ===== ViewModel =====
 
@@ -44,8 +44,7 @@ data class LicenseUiState(
     val features: Map<String, Boolean> = emptyMap()
 )
 
-@HiltViewModel
-class LicenseViewModel @Inject constructor(
+class LicenseViewModel(
     private val licenseRepository: LicenseRepository
 ) : ViewModel() {
 
@@ -126,6 +125,15 @@ class LicenseViewModel @Inject constructor(
             }
         }
     }
+
+    companion object {
+        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return LicenseViewModel(AppModule.provideLicenseRepository()) as T
+            }
+        }
+    }
 }
 
 // ===== Composable Screen =====
@@ -135,7 +143,7 @@ class LicenseViewModel @Inject constructor(
 fun LicenseScreen(
     onLicenseActivated: () -> Unit,
     onTrialStarted: () -> Unit,
-    viewModel: LicenseViewModel = hiltViewModel()
+    viewModel: LicenseViewModel = viewModel(factory = LicenseViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
