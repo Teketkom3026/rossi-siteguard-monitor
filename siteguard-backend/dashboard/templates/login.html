@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}SiteGuard Monitor - Login{% endblock %}
+
+{% block extra_styles %}
+.login-container {
+    max-width: 400px;
+    margin: 100px auto;
+}
+
+.login-card {
+    background: var(--bg-card);
+    border-radius: 16px;
+    padding: 40px;
+    border: 1px solid rgba(255,255,255,0.05);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+.login-card h2 {
+    text-align: center;
+    margin-bottom: 30px;
+    font-weight: 600;
+}
+
+.login-card .form-control {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+
+.login-card .form-control:focus {
+    background: rgba(255,255,255,0.08);
+    border-color: var(--blue);
+    box-shadow: 0 0 0 0.2rem rgba(41, 121, 255, 0.25);
+    color: var(--text-primary);
+}
+
+.login-card .form-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.btn-login {
+    background: var(--blue);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    padding: 12px;
+    width: 100%;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.btn-login:hover {
+    background: #1565c0;
+    color: white;
+}
+
+.alert-error {
+    background: var(--red-bg);
+    border: 1px solid var(--red-border);
+    color: var(--red);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-card">
+        <h2><i class="fas fa-shield-alt me-2"></i>SiteGuard</h2>
+        {% if error %}
+        <div class="alert-error">
+            <i class="fas fa-exclamation-triangle me-1"></i>{{ error }}
+        </div>
+        {% endif %}
+        <form method="POST">
+            <div class="mb-3">
+                <label class="form-label" for="username">Username</label>
+                <input type="text" class="form-control" id="username" name="username"
+                       placeholder="Enter username" required autofocus>
+            </div>
+            <div class="mb-4">
+                <label class="form-label" for="password">Password</label>
+                <input type="password" class="form-control" id="password" name="password"
+                       placeholder="Enter password" required>
+            </div>
+            <button type="submit" class="btn btn-login">
+                <i class="fas fa-sign-in-alt me-2"></i>Sign In
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

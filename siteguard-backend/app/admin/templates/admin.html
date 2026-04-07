@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SiteGuard Admin Panel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f0f23;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .admin-header {
+            background: #1a1a2e;
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .admin-header .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .admin-header .logo span { color: #4a90d9; }
+        .admin-header .logo .badge {
+            background: #4a90d9;
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .header-actions a {
+            color: #a0a0b0;
+            text-decoration: none;
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .header-actions a:hover {
+            color: #fff;
+            background: rgba(255,255,255,0.05);
+        }
+
+        /* Navigation tabs */
+        .nav-tabs {
+            display: flex;
+            background: #16213e;
+            padding: 0 32px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .nav-tab {
+            padding: 14px 24px;
+            color: #a0a0b0;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .nav-tab:hover { color: #fff; }
+        .nav-tab.active {
+            color: #4a90d9;
+            border-bottom-color: #4a90d9;
+        }
+
+        /* Main content */
+        .admin-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px 32px;
+        }
+
+        /* Stats cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .stat-card {
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .stat-card .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        .stat-card .stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: #fff;
+        }
+        .stat-card .stat-value.blue { color: #4a90d9; }
+        .stat-card .stat-value.green { color: #00e676; }
+        .stat-card .stat-value.orange { color: #ff9100; }
+        .stat-card .stat-value.red { color: #ff1744; }
+        .stat-card .stat-change {
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .stat-card .stat-change.positive { color: #00e676; }
+        .stat-card .stat-change.negative { color: #ff1744; }
+
+        /* Section */
+        .section {
+            display: none;
+        }
+        .section.active { display: block; }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .section-title {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary {
+            background: #4a90d9;
+            color: #fff;
+        }
+        .btn-primary:hover { background: #5aa0e9; }
+        .btn-danger {
+            background: #ff1744;
+            color: #fff;
+        }
+        .btn-danger:hover { background: #ff4569; }
+        .btn-success {
+            background: #00e676;
+            color: #0f0f23;
+        }
+        .btn-success:hover { background: #33eb91; }
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .btn-ghost {
+            background: transparent;
+            color: #a0a0b0;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .btn-ghost:hover {
+            color: #fff;
+            border-color: rgba(255,255,255,0.2);
+        }
+
+        /* Table */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #1a1a2e;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .data-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            background: #16213e;
+        }
+        .data-table td {
+            padding: 12px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .data-table tr:hover td {
+            background: rgba(74,144,217,0.05);
+        }
+
+        /* Status badges */
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .badge-active { background: rgba(0,230,118,0.15); color: #00e676; }
+        .badge-expired { background: rgba(255,145,0,0.15); color: #ff9100; }
+        .badge-revoked { background: rgba(255,23,68,0.15); color: #ff1744; }
+        .badge-suspended { background: rgba(255,214,0,0.15); color: #ffd600; }
+        .badge-trial { background: rgba(160,160,176,0.15); color: #a0a0b0; }
+        .badge-starter { background: rgba(74,144,217,0.15); color: #4a90d9; }
+        .badge-professional { background: rgba(0,230,118,0.15); color: #00e676; }
+        .badge-business { background: rgba(255,145,0,0.15); color: #ff9100; }
+        .badge-enterprise { background: rgba(255,23,68,0.15); color: #ff1744; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 200;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 32px;
+            width: 500px;
+            max-width: 90vw;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .modal h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+        }
+        .modal .form-group {
+            margin-bottom: 16px;
+        }
+        .modal label {
+            display: block;
+            font-size: 13px;
+            color: #a0a0b0;
+            margin-bottom: 6px;
+        }
+        .modal input, .modal select {
+            width: 100%;
+            padding: 10px 14px;
+            background: #0f0f23;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+        .modal input:focus, .modal select:focus {
+            outline: none;
+            border-color: #4a90d9;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .filter-select {
+            padding: 8px 14px;
+            background: #16213e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-size: 13px;
+        }
+        .filter-select:focus { outline: none; border-color: #4a90d9; }
+        .search-input {
+            padding: 8px 14px;
+            background: #16213e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-size: 13px;
+            min-width: 250px;
+        }
+
+        /* Revenue card */
+        .revenue-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .revenue-card {
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .revenue-card h3 {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 12px;
+        }
+        .plan-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .plan-bar .plan-name {
+            width: 120px;
+            font-size: 13px;
+            color: #a0a0b0;
+        }
+        .plan-bar .bar {
+            flex: 1;
+            height: 8px;
+            background: #0f0f23;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 0 12px;
+        }
+        .plan-bar .bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s;
+        }
+        .plan-bar .bar-fill.trial { background: #a0a0b0; }
+        .plan-bar .bar-fill.starter { background: #4a90d9; }
+        .plan-bar .bar-fill.professional { background: #00e676; }
+        .plan-bar .bar-fill.business { background: #ff9100; }
+        .plan-bar .bar-fill.enterprise { background: #ff1744; }
+        .plan-bar .count {
+            font-size: 13px;
+            color: #e0e0e0;
+            min-width: 30px;
+            text-align: right;
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 300;
+        }
+        .toast {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 14px 20px;
+            margin-bottom: 8px;
+            font-size: 14px;
+            animation: slideIn 0.3s ease;
+            max-width: 350px;
+        }
+        .toast.success { border-left: 3px solid #00e676; }
+        .toast.error { border-left: 3px solid #ff1744; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .spinner {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(74,144,217,0.3);
+            border-top-color: #4a90d9;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .admin-header { padding: 12px 16px; }
+            .admin-content { padding: 16px; }
+            .nav-tabs { padding: 0 16px; overflow-x: auto; }
+            .nav-tab { padding: 12px 16px; white-space: nowrap; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="admin-header">
+        <div class="logo">
+            &#x1f6e1;&#xfe0f; Site<span>Guard</span>
+            <span class="badge">ADMIN</span>
+        </div>
+        <div class="header-actions">
+            <a href="/">&#x1f3e0; Landing</a>
+            <a href="/dashboard">&#x1f4ca; Dashboard</a>
+            <a href="/api/docs">&#x1f4d6; API Docs</a>
+        </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="nav-tabs">
+        <div class="nav-tab active" data-tab="overview">&#x1f4ca; Overview</div>
+        <div class="nav-tab" data-tab="licenses">&#x1f511; Licenses</div>
+        <div class="nav-tab" data-tab="users">&#x1f465; Users</div>
+        <div class="nav-tab" data-tab="revenue">&#x1f4b0; Revenue</div>
+    </nav>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Main Content -->
+    <main class="admin-content">
+        <!-- Overview Section -->
+        <div class="section active" id="section-overview">
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Users</div>
+                    <div class="stat-value blue" id="stat-users">-</div>
+                    <div class="stat-change positive" id="stat-users-change"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Active Licenses</div>
+                    <div class="stat-value green" id="stat-licenses">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Revenue</div>
+                    <div class="stat-value orange" id="stat-revenue">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Monitored Sites</div>
+                    <div class="stat-value" id="stat-sites">-</div>
+                </div>
+            </div>
+
+            <!-- Plans breakdown -->
+            <div class="revenue-grid">
+                <div class="revenue-card">
+                    <h3>Licenses by Plan</h3>
+                    <div id="plansBreakdown"></div>
+                </div>
+                <div class="revenue-card">
+                    <h3>Quick Actions</h3>
+                    <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px;">
+                        <button class="btn btn-primary" onclick="showModal('createLicense')">
+                            + Create License
+                        </button>
+                        <button class="btn btn-primary" onclick="showModal('createUser')">
+                            + Create User
+                        </button>
+                        <button class="btn btn-ghost" onclick="loadStats()">
+                            &#x21bb; Refresh Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent licenses table (compact) -->
+            <div class="section-header">
+                <h2 class="section-title">Recent Licenses</h2>
+            </div>
+            <div id="recentLicensesTable">
+                <div class="loading"><div class="spinner"></div><p>Loading...</p></div>
+            </div>
+        </div>
+
+        <!-- Licenses Section -->
+        <div class="section" id="section-licenses">
+            <div class="section-header">
+                <h2 class="section-title">License Management</h2>
+                <button class="btn btn-primary" onclick="showModal('createLicense')">
+                    + New License
+                </button>
+            </div>
+            <div class="filters">
+                <select class="filter-select" id="licenseStatusFilter" onchange="loadLicenses()">
+                    <option value="">All Statuses</option>
+                    <option value="active">Active</option>
+                    <option value="expired">Expired</option>
+                    <option value="revoked">Revoked</option>
+                    <option value="suspended">Suspended</option>
+                </select>
+                <select class="filter-select" id="licensePlanFilter" onchange="loadLicenses()">
+                    <option value="">All Plans</option>
+                    <option value="trial">Trial</option>
+                    <option value="starter">Starter</option>
+                    <option value="professional">Professional</option>
+                    <option value="business">Business</option>
+                    <option value="enterprise">Enterprise</option>
+                </select>
+            </div>
+            <div id="licensesTable">
+                <div class="loading"><div class="spinner"></div><p>Loading...</p></div>
+            </div>
+        </div>
+
+        <!-- Users Section -->
+        <div class="section" id="section-users">
+            <div class="section-header">
+                <h2 class="section-title">User Management</h2>
+                <button class="btn btn-primary" onclick="showModal('createUser')">
+                    + New User
+                </button>
+            </div>
+            <div id="usersTable">
+                <div class="loading"><div class="spinner"></div><p>Loading...</p></div>
+            </div>
+        </div>
+
+        <!-- Revenue Section -->
+        <div class="section" id="section-revenue">
+            <div class="section-header">
+                <h2 class="section-title">Revenue Overview</h2>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Revenue</div>
+                    <div class="stat-value green" id="rev-total">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Avg Per License</div>
+                    <div class="stat-value blue" id="rev-avg">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Paid Licenses</div>
+                    <div class="stat-value" id="rev-paid">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Trial Conversions</div>
+                    <div class="stat-value orange" id="rev-conversions">-</div>
+                </div>
+            </div>
+            <div class="revenue-grid">
+                <div class="revenue-card">
+                    <h3>Revenue by Plan</h3>
+                    <div id="revenueByPlan"></div>
+                </div>
+                <div class="revenue-card">
+                    <h3>Pricing Grid</h3>
+                    <table class="data-table" style="font-size:13px;">
+                        <thead>
+                            <tr>
+                                <th>Plan</th>
+                                <th>Price/Year</th>
+                                <th>Sites</th>
+                                <th>Devices</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Trial</td><td>Free (14d)</td><td>3</td><td>1</td></tr>
+                            <tr><td>Starter</td><td>2,990 &#x20bd;</td><td>5</td><td>2</td></tr>
+                            <tr><td>Professional</td><td>9,990 &#x20bd;</td><td>25</td><td>5</td></tr>
+                            <tr><td>Business</td><td>29,990 &#x20bd;</td><td>100</td><td>10</td></tr>
+                            <tr><td>Enterprise</td><td>99,990 &#x20bd;</td><td>&#x221e;</td><td>50</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Create License Modal -->
+    <div class="modal-overlay" id="modal-createLicense">
+        <div class="modal">
+            <h2>&#x1f511; Create New License</h2>
+            <div class="form-group">
+                <label>User Email</label>
+                <input type="email" id="newLicenseEmail" placeholder="user@example.com">
+            </div>
+            <div class="form-group">
+                <label>Plan</label>
+                <select id="newLicensePlan">
+                    <option value="trial">Trial (Free, 14 days)</option>
+                    <option value="starter">Starter (2,990 &#x20bd;/year)</option>
+                    <option value="professional" selected>Professional (9,990 &#x20bd;/year)</option>
+                    <option value="business">Business (29,990 &#x20bd;/year)</option>
+                    <option value="enterprise">Enterprise (99,990 &#x20bd;/year)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Custom Duration (days, optional)</label>
+                <input type="number" id="newLicenseDuration" placeholder="Leave empty for plan default">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="hideModal('createLicense')">Cancel</button>
+                <button class="btn btn-primary" onclick="createLicense()">Create License</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create User Modal -->
+    <div class="modal-overlay" id="modal-createUser">
+        <div class="modal">
+            <h2>&#x1f465; Create New User</h2>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="newUserEmail" placeholder="user@example.com">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="newUserPassword" placeholder="Minimum 8 characters">
+            </div>
+            <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" id="newUserName" placeholder="John Doe">
+            </div>
+            <div class="form-group">
+                <label>Company</label>
+                <input type="text" id="newUserCompany" placeholder="Company name">
+            </div>
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="newUserAdmin" style="width:auto;">
+                <label for="newUserAdmin" style="margin:0;">Admin privileges</label>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="hideModal('createUser')">Cancel</button>
+                <button class="btn btn-primary" onclick="createUser()">Create User</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== Tab navigation =====
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+                tab.classList.add('active');
+                const sectionId = 'section-' + tab.dataset.tab;
+                document.getElementById(sectionId).classList.add('active');
+
+                // Load data for the tab
+                switch(tab.dataset.tab) {
+                    case 'overview': loadStats(); break;
+                    case 'licenses': loadLicenses(); break;
+                    case 'users': loadUsers(); break;
+                    case 'revenue': loadRevenue(); break;
+                }
+            });
+        });
+
+        // ===== Toast notifications =====
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        // ===== Modal management =====
+        function showModal(name) {
+            document.getElementById('modal-' + name).classList.add('active');
+        }
+        function hideModal(name) {
+            document.getElementById('modal-' + name).classList.remove('active');
+        }
+        // Close modal on overlay click
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) overlay.classList.remove('active');
+            });
+        });
+
+        // ===== API calls =====
+        const API_BASE = '/admin/api';
+
+        async function apiCall(endpoint, options = {}) {
+            try {
+                const response = await fetch(API_BASE + endpoint, {
+                    headers: { 'Content-Type': 'application/json', ...options.headers },
+                    ...options,
+                });
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${response.status}`);
+                }
+                return await response.json();
+            } catch(e) {
+                showToast(e.message, 'error');
+                throw e;
+            }
+        }
+
+        // ===== Load stats =====
+        async function loadStats() {
+            try {
+                const stats = await apiCall('/stats');
+                document.getElementById('stat-users').textContent = stats.total_users;
+                document.getElementById('stat-licenses').textContent = stats.active_licenses;
+                document.getElementById('stat-revenue').textContent =
+                    new Intl.NumberFormat('ru-RU').format(stats.total_revenue) + ' \u20bd';
+                document.getElementById('stat-sites').textContent = stats.total_sites;
+
+                if (stats.recent_users_30d > 0) {
+                    document.getElementById('stat-users-change').textContent =
+                        `+${stats.recent_users_30d} last 30d`;
+                }
+
+                // Plans breakdown
+                renderPlansBreakdown(stats.plans_breakdown, stats.active_licenses);
+
+                // Load recent licenses for overview
+                loadRecentLicenses();
+            } catch(e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+
+        function renderPlansBreakdown(breakdown, total) {
+            const container = document.getElementById('plansBreakdown');
+            const plans = ['trial', 'starter', 'professional', 'business', 'enterprise'];
+            let html = '';
+            plans.forEach(plan => {
+                const count = breakdown[plan] || 0;
+                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                html += `
+                    <div class="plan-bar">
+                        <span class="plan-name">${plan.charAt(0).toUpperCase() + plan.slice(1)}</span>
+                        <div class="bar"><div class="bar-fill ${plan}" style="width:${pct}%"></div></div>
+                        <span class="count">${count}</span>
+                    </div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        // ===== Load recent licenses (overview) =====
+        async function loadRecentLicenses() {
+            try {
+                const licenses = await apiCall('/licenses?limit=10');
+                renderLicensesTable(licenses, 'recentLicensesTable');
+            } catch(e) {}
+        }
+
+        // ===== Load licenses =====
+        async function loadLicenses() {
+            const status = document.getElementById('licenseStatusFilter').value;
+            const plan = document.getElementById('licensePlanFilter').value;
+            let url = '/licenses?limit=100';
+            if (status) url += `&status_filter=${status}`;
+            if (plan) url += `&plan_filter=${plan}`;
+            try {
+                const licenses = await apiCall(url);
+                renderLicensesTable(licenses, 'licensesTable');
+            } catch(e) {}
+        }
+
+        function renderLicensesTable(licenses, containerId) {
+            const container = document.getElementById(containerId);
+            if (licenses.length === 0) {
+                container.innerHTML = '<p style="color:#666;padding:20px;">No licenses found</p>';
+                return;
+            }
+            let html = `<table class="data-table">
+                <thead><tr>
+                    <th>Key</th><th>Plan</th><th>Status</th>
+                    <th>Devices</th><th>Expires</th><th>Days Left</th>
+                    <th>Payment</th><th>Actions</th>
+                </tr></thead><tbody>`;
+            licenses.forEach(lic => {
+                const statusClass = `badge-${lic.status}`;
+                const planClass = `badge-${lic.plan}`;
+                html += `<tr>
+                    <td><code style="font-size:11px;color:#4a90d9;">${lic.license_key}</code></td>
+                    <td><span class="badge ${planClass}">${lic.plan}</span></td>
+                    <td><span class="badge ${statusClass}">${lic.status}</span></td>
+                    <td>${lic.devices_used}/${lic.max_devices}</td>
+                    <td>${lic.expires_at ? new Date(lic.expires_at).toLocaleDateString('ru') : '-'}</td>
+                    <td style="color:${lic.days_remaining <= 7 ? '#ff1744' : lic.days_remaining <= 30 ? '#ff9100' : '#00e676'}">${lic.days_remaining}d</td>
+                    <td>${lic.payment_amount > 0 ? new Intl.NumberFormat('ru-RU').format(lic.payment_amount) + ' \u20bd' : 'Free'}</td>
+                    <td>
+                        ${lic.status === 'active' ?
+                            `<button class="btn btn-danger btn-sm" onclick="revokeLicense(${lic.id})">Revoke</button>` :
+                            `<button class="btn btn-success btn-sm" onclick="activateLicenseAdmin(${lic.id})">Activate</button>`
+                        }
+                    </td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // ===== Load users =====
+        async function loadUsers() {
+            try {
+                const users = await apiCall('/users?limit=100');
+                const container = document.getElementById('usersTable');
+                if (users.length === 0) {
+                    container.innerHTML = '<p style="color:#666;padding:20px;">No users found</p>';
+                    return;
+                }
+                let html = `<table class="data-table">
+                    <thead><tr>
+                        <th>ID</th><th>Email</th><th>Name</th><th>Company</th>
+                        <th>Admin</th><th>Active</th><th>Registered</th><th>Actions</th>
+                    </tr></thead><tbody>`;
+                users.forEach(u => {
+                    html += `<tr>
+                        <td>${u.id}</td>
+                        <td style="color:#4a90d9;">${u.email}</td>
+                        <td>${u.full_name || '-'}</td>
+                        <td>${u.company_name || '-'}</td>
+                        <td>${u.is_admin ? '<span class="badge badge-active">Admin</span>' : '-'}</td>
+                        <td>${u.is_active ?
+                            '<span class="badge badge-active">Active</span>' :
+                            '<span class="badge badge-revoked">Disabled</span>'}</td>
+                        <td>${u.created_at ? new Date(u.created_at).toLocaleDateString('ru') : '-'}</td>
+                        <td>
+                            <button class="btn btn-ghost btn-sm" onclick="toggleUserActive(${u.id})">
+                                ${u.is_active ? 'Disable' : 'Enable'}
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch(e) {}
+        }
+
+        // ===== Load revenue =====
+        async function loadRevenue() {
+            try {
+                const stats = await apiCall('/stats');
+                const licenses = await apiCall('/licenses?limit=1000');
+
+                document.getElementById('rev-total').textContent =
+                    new Intl.NumberFormat('ru-RU').format(stats.total_revenue) + ' \u20bd';
+
+                const paid = licenses.filter(l => l.payment_amount > 0);
+                document.getElementById('rev-paid').textContent = paid.length;
+
+                const avg = paid.length > 0 ?
+                    Math.round(paid.reduce((s, l) => s + l.payment_amount, 0) / paid.length) : 0;
+                document.getElementById('rev-avg').textContent =
+                    new Intl.NumberFormat('ru-RU').format(avg) + ' \u20bd';
+
+                const trials = licenses.filter(l => l.plan === 'trial').length;
+                const converted = licenses.filter(l => l.plan !== 'trial' && l.payment_amount > 0).length;
+                document.getElementById('rev-conversions').textContent =
+                    trials > 0 ? Math.round((converted / (trials + converted)) * 100) + '%' : '-';
+
+                // Revenue by plan
+                const planRevenue = {};
+                paid.forEach(l => {
+                    planRevenue[l.plan] = (planRevenue[l.plan] || 0) + l.payment_amount;
+                });
+                const revContainer = document.getElementById('revenueByPlan');
+                let html = '';
+                const maxRev = Math.max(...Object.values(planRevenue), 1);
+                ['starter', 'professional', 'business', 'enterprise'].forEach(plan => {
+                    const rev = planRevenue[plan] || 0;
+                    const pct = Math.round((rev / maxRev) * 100);
+                    html += `
+                        <div class="plan-bar">
+                            <span class="plan-name">${plan.charAt(0).toUpperCase() + plan.slice(1)}</span>
+                            <div class="bar"><div class="bar-fill ${plan}" style="width:${pct}%"></div></div>
+                            <span class="count">${new Intl.NumberFormat('ru-RU').format(rev)} \u20bd</span>
+                        </div>`;
+                });
+                revContainer.innerHTML = html;
+            } catch(e) {}
+        }
+
+        // ===== Actions =====
+        async function createLicense() {
+            const email = document.getElementById('newLicenseEmail').value;
+            const plan = document.getElementById('newLicensePlan').value;
+            const duration = document.getElementById('newLicenseDuration').value;
+            if (!email) return showToast('Email is required', 'error');
+            try {
+                const data = { user_email: email, plan: plan };
+                if (duration) data.custom_duration_days = parseInt(duration);
+                const result = await apiCall('/licenses', {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                });
+                showToast(`License created: ${result.license_key}`);
+                hideModal('createLicense');
+                document.getElementById('newLicenseEmail').value = '';
+                loadStats();
+                loadLicenses();
+            } catch(e) {}
+        }
+
+        async function createUser() {
+            const email = document.getElementById('newUserEmail').value;
+            const password = document.getElementById('newUserPassword').value;
+            const name = document.getElementById('newUserName').value;
+            const company = document.getElementById('newUserCompany').value;
+            const isAdmin = document.getElementById('newUserAdmin').checked;
+            if (!email || !password) return showToast('Email and password are required', 'error');
+            try {
+                await apiCall('/users', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        email, password, full_name: name || null,
+                        company_name: company || null, is_admin: isAdmin,
+                    }),
+                });
+                showToast('User created successfully');
+                hideModal('createUser');
+                document.getElementById('newUserEmail').value = '';
+                document.getElementById('newUserPassword').value = '';
+                document.getElementById('newUserName').value = '';
+                document.getElementById('newUserCompany').value = '';
+                document.getElementById('newUserAdmin').checked = false;
+                loadUsers();
+                loadStats();
+            } catch(e) {}
+        }
+
+        async function revokeLicense(id) {
+            if (!confirm('Are you sure you want to revoke this license?')) return;
+            try {
+                await apiCall(`/licenses/${id}/revoke`, {
+                    method: 'POST',
+                    body: JSON.stringify({ reason: 'Revoked by admin' }),
+                });
+                showToast('License revoked');
+                loadLicenses();
+                loadStats();
+            } catch(e) {}
+        }
+
+        async function activateLicenseAdmin(id) {
+            try {
+                await apiCall(`/licenses/${id}/activate`, { method: 'POST' });
+                showToast('License activated');
+                loadLicenses();
+                loadStats();
+            } catch(e) {}
+        }
+
+        async function toggleUserActive(id) {
+            try {
+                const result = await apiCall(`/users/${id}/toggle-active`, { method: 'POST' });
+                showToast(result.message);
+                loadUsers();
+            } catch(e) {}
+        }
+
+        // ===== Initialize =====
+        loadStats();
+
+        // Auto-refresh every 60 seconds
+        setInterval(loadStats, 60000);
+    </script>
+</body>
+</html>

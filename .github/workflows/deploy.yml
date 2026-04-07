@@ -1,0 +1,66 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          cd siteguard-backend
+          docker build -t siteguard-api:latest .
+
+      - name: Push to registry
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | \
+            docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin \
+            ${{ secrets.DOCKER_REGISTRY }}
+          docker tag siteguard-api:latest ${{ secrets.DOCKER_REGISTRY }}/siteguard-api:latest
+          docker push ${{ secrets.DOCKER_REGISTRY }}/siteguard-api:latest
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/siteguard
+            git pull origin main
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker system prune -f
+            echo "Deployment complete at $(date)"
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl -f http://${{ secrets.PROD_HOST }}/api/health || exit 1
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            MSG="Deployment to ${{ github.event.inputs.environment }} succeeded"
+          else
+            MSG="Deployment to ${{ github.event.inputs.environment }} FAILED"
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TG_DEPLOY_CHAT }}" \
+            -d "text=$MSG"

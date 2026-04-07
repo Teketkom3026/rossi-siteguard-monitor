@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="dark_background">#FF0F0F23</color>
+    <color name="dark_card">#FF1A1A2E</color>
+    <color name="dark_surface">#FF16213E</color>
+    <color name="accent_blue">#FF4A90D9</color>
+    <color name="success_green">#FF00E676</color>
+    <color name="error_red">#FFFF1744</color>
+    <color name="warning_orange">#FFFF9100</color>
+    <color name="warning_yellow">#FFFFD600</color>
+    <color name="text_primary">#FFE0E0E0</color>
+    <color name="text_secondary">#FFA0A0B0</color>
+    <color name="text_hint">#FF666680</color>
+</resources>

@@ -1,0 +1,145 @@
+# ==============================================
+# SiteGuard Monitor - Alert Configuration
+# ==============================================
+
+# Severity levels and their notification channels
+severity_levels:
+  critical:
+    description: "Site down, SSL expired, malware detected"
+    color: "#ff1744"
+    notification_channels:
+      - telegram
+      - email
+      - sms
+    cooldown_minutes: 5
+    escalation:
+      enabled: true
+      escalate_after_minutes: 15
+      escalate_to:
+        - sms
+        - email
+    auto_acknowledge_minutes: 0  # Never auto-acknowledge critical
+
+  high:
+    description: "Slow response >5s, SSL expiring <7 days, security threats"
+    color: "#ff9100"
+    notification_channels:
+      - telegram
+      - email
+    cooldown_minutes: 15
+    escalation:
+      enabled: true
+      escalate_after_minutes: 30
+      escalate_to:
+        - sms
+    auto_acknowledge_minutes: 0
+
+  medium:
+    description: "Slow response >3s, SSL expiring <30 days, UI issues"
+    color: "#ffea00"
+    notification_channels:
+      - telegram
+    cooldown_minutes: 30
+    escalation:
+      enabled: false
+    auto_acknowledge_minutes: 120
+
+  low:
+    description: "Minor warnings, non-critical page errors"
+    color: "#2979ff"
+    notification_channels:
+      - telegram
+    cooldown_minutes: 60
+    escalation:
+      enabled: false
+    auto_acknowledge_minutes: 240
+
+# Telegram configuration
+telegram:
+  enabled: true
+  bot_token: "YOUR_BOT_TOKEN_HERE"
+  chat_ids:
+    - "-100123456789"    # Group chat ID
+    - "987654321"        # Admin personal chat ID
+
+# Email configuration
+email:
+  enabled: true
+  smtp_host: "smtp.yandex.ru"
+  smtp_port: 465
+  smtp_user: "monitoring@yourdomain.ru"
+  smtp_password: "YOUR_SMTP_PASSWORD"
+  from_email: "monitoring@yourdomain.ru"
+  to_emails:
+    - "admin@yourdomain.ru"
+    - "devops@yourdomain.ru"
+  use_tls: true
+
+# SMS configuration
+sms:
+  enabled: true
+  provider: "smsru"          # smsru / smsc / smsaero
+  api_key: "YOUR_SMSRU_API_KEY"
+  phone_numbers:
+    - "+79001234567"
+    - "+79009876543"
+  smsc_login: ""
+  smsc_password: ""
+
+# VirusTotal API key for malware scanning
+virustotal_api_key: "YOUR_VIRUSTOTAL_API_KEY"
+
+# Database connection
+database_url: "postgresql://monitor:monitorpass@localhost:5432/site_monitoring"
+
+# Anti-flood: minimum interval between identical notifications
+cooldown_minutes: 15
+
+# Data retention period in days
+data_retention_days: 90
+
+# Escalation rules
+escalation:
+  # If alert is not acknowledged within this time, escalate
+  default_escalate_after_minutes: 30
+  # Maximum escalation level
+  max_escalation_level: 3
+  # Escalation chain
+  chain:
+    level_1:
+      channels:
+        - telegram
+      wait_minutes: 15
+    level_2:
+      channels:
+        - telegram
+        - email
+      wait_minutes: 30
+    level_3:
+      channels:
+        - telegram
+        - email
+        - sms
+      wait_minutes: 60
+
+# Daily report settings
+daily_report:
+  enabled: true
+  send_at: "09:00"
+  timezone: "Europe/Moscow"
+  channels:
+    - telegram
+    - email
+  include_sections:
+    - uptime_summary
+    - ssl_status
+    - security_scores
+    - top_issues
+    - response_time_trends
+
+# Recovery notifications
+recovery:
+  enabled: true
+  channels:
+    - telegram
+  message_template: "Site {domain} has recovered and is now operational."

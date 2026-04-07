@@ -1,0 +1,239 @@
+sites:
+  - domain: rossimarket.ru
+    name: "Росси Маркет"
+    check_interval: 300          # секунды
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+    critical_pages:
+      - url: "/"
+        name: "Главная"
+      - url: "/catalog"
+        name: "Каталог"
+      - url: "/cart"
+        name: "Корзина"
+      - url: "/contacts"
+        name: "Контакты"
+    ui_elements:
+      - selector: "button.buy-btn"
+        name: "Кнопка Купить"
+        action: "click"
+      - selector: "a[href='tel:']"
+        name: "Кнопка Позвонить"
+        action: "exists"
+      - selector: "form.callback-form"
+        name: "Форма обратной связи"
+        action: "submit_test"
+      - selector: "form.order-form"
+        name: "Форма заявки"
+        action: "submit_test"
+      - selector: ".product-card"
+        name: "Карточка товара"
+        action: "click"
+
+  - domain: bvs.com.ru
+    name: "БВС"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+    critical_pages:
+      - url: "/"
+        name: "Главная"
+      - url: "/catalog"
+        name: "Каталог"
+
+  - domain: cargat.ru
+    name: "Каргат"
+    check_interval: 300
+    priority: medium
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: ceresit.com.ru
+    name: "Церезит"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: cisa.com.ru
+    name: "CISA"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: commax.com.ru
+    name: "Commax"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: dkc-russia.com.ru
+    name: "DKC Russia"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: rvi.com.ru
+    name: "RVi"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: systeme-electric.com.ru
+    name: "Systeme Electric"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: tantos.com.ru
+    name: "Tantos"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: baofeng.com.ru
+    name: "Baofeng"
+    check_interval: 300
+    priority: medium
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: cas.com.ru
+    name: "CAS"
+    check_interval: 300
+    priority: medium
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: commandcore.ru
+    name: "CommandCore"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: rossipotok.ru
+    name: "Росси Поток"
+    check_interval: 300
+    priority: medium
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: rossi.ru
+    name: "Росси"
+    check_interval: 300
+    priority: critical
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: rossiac.ru
+    name: "Росси АС"
+    check_interval: 300
+    priority: medium
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: rossiparts.ru
+    name: "Росси Партс"
+    check_interval: 300
+    priority: medium
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: rossiproekt.ru
+    name: "Росси Проект"
+    check_interval: 300
+    priority: medium
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true
+
+  - domain: suverenitet.tech
+    name: "Суверенитет"
+    check_interval: 300
+    priority: high
+    checks:
+      availability: true
+      ssl: true
+      ui_tests: true
+      security_scan: true
+      malware_scan: true

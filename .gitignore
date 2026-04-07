@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+
+# Secrets
+.env
+.env.local
+.env.production
+secrets/
+*.pem
+*.key
+*.pfx
+certificate.pfx
+keystore.jks
+
+# Node
+node_modules/
+
+# Android
+siteguard-android/.gradle/
+siteguard-android/app/build/
+siteguard-android/build/
+siteguard-android/local.properties
+
+# Desktop build artifacts
+siteguard-desktop/dist/
+siteguard-desktop/build/__pycache__/
+*.spec
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Redis dump
+dump.rdb
+
+# Firebase
+google-services.json
+firebase-credentials.json

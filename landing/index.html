@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SiteGuard Monitor — Мониторинг сайтов 24/7</title>
+    <meta name="description" content="Автоматический мониторинг доступности, безопасности и работоспособности сайтов. Windows + Android. Уведомления в Telegram, Email, SMS.">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f0f23;
+            color: #e0e0e0;
+        }
+        /* Header */
+        .header {
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .logo { font-size: 24px; font-weight: 700; color: #fff; }
+        .logo span { color: #4a90d9; }
+        .nav a {
+            color: #a0a0b0;
+            text-decoration: none;
+            margin-left: 30px;
+            font-size: 15px;
+            transition: color 0.3s;
+        }
+        .nav a:hover { color: #fff; }
+        .nav .cta-btn {
+            background: #4a90d9;
+            color: #fff;
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        .nav .cta-btn:hover { background: #5aa0e9; }
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 100px 20px 60px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .hero h1 {
+            font-size: 52px;
+            font-weight: 800;
+            line-height: 1.2;
+            margin-bottom: 20px;
+        }
+        .hero h1 .accent { color: #4a90d9; }
+        .hero h1 .green { color: #00e676; }
+        .hero p {
+            font-size: 20px;
+            color: #a0a0b0;
+            max-width: 700px;
+            margin: 0 auto 40px;
+            line-height: 1.6;
+        }
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn-primary {
+            background: #4a90d9;
+            color: #fff;
+            padding: 16px 36px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            text-decoration: none;
+            transition: transform 0.2s, background 0.3s;
+        }
+        .btn-primary:hover {
+            background: #5aa0e9;
+            transform: translateY(-2px);
+        }
+        .btn-secondary {
+            background: transparent;
+            color: #4a90d9;
+            padding: 16px 36px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            text-decoration: none;
+            border: 2px solid #4a90d9;
+            transition: all 0.3s;
+        }
+        .btn-secondary:hover {
+            background: rgba(74,144,217,0.1);
+        }
+        /* Features */
+        .features {
+            max-width: 1200px;
+            margin: 80px auto;
+            padding: 0 20px;
+        }
+        .features h2 {
+            text-align: center;
+            font-size: 36px;
+            margin-bottom: 60px;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        .feature-card {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: transform 0.3s, border-color 0.3s;
+        }
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: #4a90d9;
+        }
+        .feature-icon {
+            font-size: 40px;
+            margin-bottom: 16px;
+        }
+        .feature-card h3 {
+            font-size: 20px;
+            margin-bottom: 12px;
+            color: #fff;
+        }
+        .feature-card p {
+            color: #a0a0b0;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+        /* Pricing */
+        .pricing {
+            max-width: 1200px;
+            margin: 100px auto;
+            padding: 0 20px;
+        }
+        .pricing h2 {
+            text-align: center;
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+        .pricing .subtitle {
+            text-align: center;
+            color: #a0a0b0;
+            margin-bottom: 60px;
+            font-size: 18px;
+        }
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 24px;
+        }
+        .pricing-card {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+            transition: transform 0.3s;
+        }
+        .pricing-card:hover { transform: translateY(-4px); }
+        .pricing-card.popular {
+            border: 2px solid #4a90d9;
+            transform: scale(1.05);
+        }
+        .pricing-card.popular:hover { transform: scale(1.08); }
+        .popular-badge {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #4a90d9;
+            color: #fff;
+            padding: 4px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .pricing-card h3 {
+            font-size: 22px;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+        .pricing-card .price {
+            font-size: 36px;
+            font-weight: 800;
+            color: #4a90d9;
+            margin-bottom: 4px;
+        }
+        .pricing-card .period {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .pricing-card .sites-limit {
+            color: #00e676;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        .pricing-features {
+            list-style: none;
+            margin-bottom: 24px;
+        }
+        .pricing-features li {
+            padding: 6px 0;
+            font-size: 14px;
+            color: #a0a0b0;
+        }
+        .pricing-features li.yes::before {
+            content: "\2705 ";
+        }
+        .pricing-features li.no {
+            color: #555;
+        }
+        .pricing-features li.no::before {
+            content: "\274c ";
+        }
+        .pricing-card .buy-btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            background: #4a90d9;
+            color: #fff;
+            transition: background 0.3s;
+            text-align: center;
+            text-decoration: none;
+        }
+        .pricing-card .buy-btn:hover { background: #5aa0e9; }
+        /* Download */
+        .download {
+            text-align: center;
+            padding: 80px 20px;
+            background: #1a1a2e;
+            margin: 80px 0 0;
+        }
+        .download h2 {
+            font-size: 36px;
+            margin-bottom: 40px;
+        }
+        .download-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .download-btn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #16213e;
+            border: 2px solid #2a2a5e;
+            border-radius: 12px;
+            padding: 16px 32px;
+            text-decoration: none;
+            color: #fff;
+            transition: all 0.3s;
+        }
+        .download-btn:hover {
+            border-color: #4a90d9;
+            transform: translateY(-2px);
+        }
+        .download-btn .icon { font-size: 32px; }
+        .download-btn .text { text-align: left; }
+        .download-btn .text .small {
+            font-size: 12px;
+            color: #888;
+        }
+        .download-btn .text .name {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 40px;
+            color: #555;
+            font-size: 14px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .footer a { color: #4a90d9; text-decoration: none; }
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 32px; }
+            .pricing-card.popular { transform: scale(1); }
+            .header { flex-direction: column; gap: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">&#x1f6e1;&#xfe0f; Site<span>Guard</span></div>
+        <nav class="nav">
+            <a href="#features">Возможности</a>
+            <a href="#pricing">Цены</a>
+            <a href="#download">Скачать</a>
+            <a href="/admin">Панель управления</a>
+            <a href="/dashboard">Дашборд</a>
+            <a href="/admin" class="cta-btn">Войти</a>
+        </nav>
+    </header>
+
+    <section class="hero">
+        <h1>
+            Мониторинг сайтов <span class="accent">24/7</span>
+            с <span class="green">мгновенными</span> уведомлениями
+        </h1>
+        <p>
+            Доступность, SSL, безопасность, кнопки и формы —
+            всё под контролем. Telegram, Email, SMS-алерты.
+            Windows + Android.
+        </p>
+        <div class="hero-buttons">
+            <a href="#pricing" class="btn-primary">
+                Начать бесплатно &rarr;
+            </a>
+            <a href="#download" class="btn-secondary">
+                Скачать приложение
+            </a>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <h2>Что мониторим</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">&#x1f310;</div>
+                <h3>Доступность 24/7</h3>
+                <p>HTTP/HTTPS проверки, DNS, Ping каждые 1-5 минут.
+                   Мгновенное уведомление при падении сайта.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1f512;</div>
+                <h3>SSL-сертификаты</h3>
+                <p>Контроль валидности и срока действия.
+                   Уведомление за 30/14/7 дней до истечения.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1f5b1;&#xfe0f;</div>
+                <h3>Кнопки и формы</h3>
+                <p>Автоматическая проверка: Купить, Позвонить,
+                   Обратная связь, Заявка, Каталог, Корзина.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1f6e1;&#xfe0f;</div>
+                <h3>Безопасность</h3>
+                <p>HTTP-заголовки, открытые ресурсы (.env, .git),
+                   уязвимости, WAF-детекция.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1f9a0;</div>
+                <h3>Вредоносный код</h3>
+                <p>Скрытые iframe, криптомайнеры, веб-шеллы,
+                   подозрительные скрипты и файлы.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1f5fa;&#xfe0f;</div>
+                <h3>Sitemap-визуализация</h3>
+                <p>Дерево сайта с цветовой индикацией состояния
+                   каждой страницы и раздела.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="pricing" id="pricing">
+        <h2>Тарифные планы</h2>
+        <p class="subtitle">14 дней бесплатного пробного периода для всех</p>
+        <div class="pricing-grid">
+            <!-- Trial -->
+            <div class="pricing-card">
+                <h3>&#x1f193; Trial</h3>
+                <div class="price">0 &#x20bd;</div>
+                <div class="period">14 дней</div>
+                <div class="sites-limit">До 3 сайтов</div>
+                <ul class="pricing-features">
+                    <li class="yes">Доступность (HTTP/DNS)</li>
+                    <li class="yes">SSL-мониторинг</li>
+                    <li class="yes">Push-уведомления</li>
+                    <li class="yes">Telegram-алерты</li>
+                    <li class="no">UI-тесты кнопок</li>
+                    <li class="no">Безопасность</li>
+                    <li class="no">Антивирус</li>
+                </ul>
+                <a href="/admin" class="buy-btn">
+                    Попробовать бесплатно
+                </a>
+            </div>
+            <!-- Starter -->
+            <div class="pricing-card">
+                <h3>&#x2b50; Starter</h3>
+                <div class="price">2 990 &#x20bd;</div>
+                <div class="period">в год (249 &#x20bd;/мес)</div>
+                <div class="sites-limit">До 5 сайтов</div>
+                <ul class="pricing-features">
+                    <li class="yes">Всё из Trial</li>
+                    <li class="yes">UI-тесты (кнопки, формы)</li>
+                    <li class="yes">Email-уведомления</li>
+                    <li class="yes">Экспорт отчётов</li>
+                    <li class="yes">Sitemap-визуализация</li>
+                    <li class="no">Сканер безопасности</li>
+                    <li class="no">Антивирус</li>
+                </ul>
+                <a href="/admin" class="buy-btn">
+                    Купить Starter
+                </a>
+            </div>
+            <!-- Professional (Popular) -->
+            <div class="pricing-card popular">
+                <div class="popular-badge">Популярный</div>
+                <h3>&#x1f680; Professional</h3>
+                <div class="price">9 990 &#x20bd;</div>
+                <div class="period">в год (833 &#x20bd;/мес)</div>
+                <div class="sites-limit">До 25 сайтов</div>
+                <ul class="pricing-features">
+                    <li class="yes">Всё из Starter</li>
+                    <li class="yes">Сканер безопасности</li>
+                    <li class="yes">Антивирус (вредоносный код)</li>
+                    <li class="yes">API-доступ</li>
+                    <li class="yes">SMS-уведомления</li>
+                    <li class="yes">Настраиваемые интервалы</li>
+                    <li class="yes">90 дней истории</li>
+                </ul>
+                <a href="/admin" class="buy-btn">
+                    Купить Professional
+                </a>
+            </div>
+            <!-- Business -->
+            <div class="pricing-card">
+                <h3>&#x1f3e2; Business</h3>
+                <div class="price">29 990 &#x20bd;</div>
+                <div class="period">в год (2 499 &#x20bd;/мес)</div>
+                <div class="sites-limit">До 100 сайтов</div>
+                <ul class="pricing-features">
+                    <li class="yes">Всё из Professional</li>
+                    <li class="yes">White-label</li>
+                    <li class="yes">До 10 устройств</li>
+                    <li class="yes">Приоритетная поддержка</li>
+                    <li class="yes">365 дней истории</li>
+                    <li class="yes">Выделенный менеджер</li>
+                    <li class="yes">SLA 99.9%</li>
+                </ul>
+                <a href="/admin" class="buy-btn">
+                    Купить Business
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section class="download" id="download">
+        <h2>Скачать приложение</h2>
+        <div class="download-buttons">
+            <a href="#" class="download-btn">
+                <div class="icon">&#x1f5a5;&#xfe0f;</div>
+                <div class="text">
+                    <div class="small">Скачать для</div>
+                    <div class="name">Windows</div>
+                </div>
+            </a>
+            <a href="#" class="download-btn">
+                <div class="icon">&#x1f4f1;</div>
+                <div class="text">
+                    <div class="small">Доступно в</div>
+                    <div class="name">Google Play</div>
+                </div>
+            </a>
+            <a href="#" class="download-btn">
+                <div class="icon">&#x1f1f7;&#x1f1fa;</div>
+                <div class="text">
+                    <div class="small">Доступно в</div>
+                    <div class="name">RuStore</div>
+                </div>
+            </a>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <p>
+            &copy; 2024 SiteGuard. Все права защищены.
+            <a href="/privacy">Политика конфиденциальности</a> |
+            <a href="/terms">Условия использования</a> |
+            <a href="mailto:support@siteguard.app">support@siteguard.app</a>
+        </p>
+    </footer>
+</body>
+</html>

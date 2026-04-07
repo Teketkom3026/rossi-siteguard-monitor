@@ -1,0 +1,1011 @@
+{% extends "base.html" %}
+
+{% block title %}SiteGuard Monitor - Dashboard{% endblock %}
+
+{% block head %}
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block extra_styles %}
+.header {
+    background: linear-gradient(135deg, #0a0a1a 0%, #16213e 100%);
+    padding: 20px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.stats-bar {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 25px;
+    flex-wrap: wrap;
+}
+
+.stat-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 20px;
+    flex: 1;
+    min-width: 150px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.stat-card .stat-value {
+    font-size: 36px;
+    font-weight: 700;
+}
+
+.stat-card .stat-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.site-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 15px;
+    border-left: 4px solid var(--green);
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.site-card:hover {
+    background: var(--bg-card-hover);
+    transform: translateX(5px);
+}
+
+.site-card.status-ok {
+    border-left-color: var(--green);
+    background: var(--green-bg);
+}
+
+.site-card.status-critical {
+    border-left-color: var(--red);
+    background: var(--red-bg);
+    animation: pulse-red 2s infinite;
+}
+
+.site-card.status-warning {
+    border-left-color: var(--orange);
+    background: var(--orange-bg);
+}
+
+@keyframes pulse-red {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 23, 68, 0.4); }
+    50% { box-shadow: 0 0 20px 5px rgba(255, 23, 68, 0.2); }
+}
+
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+}
+
+.status-indicator.green { background-color: var(--green); box-shadow: 0 0 8px var(--green); }
+.status-indicator.red { background-color: var(--red); box-shadow: 0 0 8px var(--red); }
+.status-indicator.orange { background-color: var(--orange); box-shadow: 0 0 8px var(--orange); }
+.status-indicator.yellow { background-color: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+
+.sitemap-tree {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 15px;
+}
+
+.tree-node {
+    padding: 8px 12px;
+    margin: 3px 0;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 14px;
+}
+
+.tree-node.ok {
+    background: var(--green-bg);
+    border: 1px solid var(--green-border);
+}
+
+.tree-node.error {
+    background: var(--red-bg);
+    border: 1px solid var(--red-border);
+}
+
+.tree-node.unknown {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.tree-children {
+    margin-left: 25px;
+    border-left: 2px solid rgba(255,255,255,0.1);
+    padding-left: 15px;
+}
+
+.issue-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.issue-badge.critical { background: var(--red); color: white; }
+.issue-badge.high { background: var(--orange); color: white; }
+.issue-badge.medium { background: var(--yellow); color: #333; }
+.issue-badge.low { background: var(--blue); color: white; }
+
+.response-time {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.response-time.fast { color: var(--green); }
+.response-time.medium { color: var(--orange); }
+.response-time.slow { color: var(--red); }
+
+.alerts-panel {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 20px;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.alert-item {
+    padding: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    animation: fadeIn 0.5s ease;
+}
+
+.alert-item:last-child {
+    border-bottom: none;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-content {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.security-score {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 auto;
+}
+
+.security-score.good {
+    background: var(--green-bg);
+    border: 3px solid var(--green);
+    color: var(--green);
+}
+
+.security-score.medium {
+    background: var(--orange-bg);
+    border: 3px solid var(--orange);
+    color: var(--orange);
+}
+
+.security-score.bad {
+    background: var(--red-bg);
+    border: 3px solid var(--red);
+    color: var(--red);
+}
+
+.ssl-info {
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin: 5px 0;
+}
+
+.ssl-info.valid { background: var(--green-bg); border: 1px solid var(--green-border); }
+.ssl-info.expiring { background: var(--orange-bg); border: 1px solid var(--orange-border); }
+.ssl-info.expired { background: var(--red-bg); border: 1px solid var(--red-border); }
+.ssl-info.missing { background: var(--red-bg); border: 1px solid var(--red-border); }
+
+.search-box {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 10px 15px;
+    width: 300px;
+}
+
+.search-box:focus {
+    outline: none;
+    border-color: var(--blue);
+}
+
+.filter-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-secondary);
+    border-radius: 20px;
+    padding: 6px 16px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.filter-btn:hover, .filter-btn.active {
+    background: var(--blue);
+    color: white;
+    border-color: var(--blue);
+}
+
+.chart-container {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .stats-bar {
+        flex-direction: column;
+    }
+    .stat-card {
+        min-width: 100%;
+    }
+    .search-box {
+        width: 100%;
+    }
+    .header .d-flex {
+        flex-direction: column;
+        gap: 15px;
+    }
+    .site-card .d-flex {
+        flex-direction: column;
+    }
+    .stat-card .stat-value {
+        font-size: 28px;
+    }
+}
+
+@media (max-width: 576px) {
+    .container-fluid {
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+    }
+    .filter-btn {
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+}
+{% endblock %}
+
+{% block nav_extra %}
+<small class="text-muted" id="lastUpdate">
+    Last update: loading...
+</small>
+{% endblock %}
+
+{% block content %}
+<!-- HEADER CONTROLS -->
+<div class="header">
+    <div class="container-fluid px-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h1><i class="fas fa-satellite-dish me-2"></i>Site Monitoring</h1>
+            </div>
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <input type="text" class="search-box"
+                       placeholder="Search by domain..."
+                       id="searchInput" oninput="filterSites()">
+                <div class="d-flex gap-2">
+                    <button class="filter-btn active" onclick="setFilter('all')"
+                            data-filter="all">All</button>
+                    <button class="filter-btn" onclick="setFilter('error')"
+                            data-filter="error">Issues</button>
+                    <button class="filter-btn" onclick="setFilter('ok')"
+                            data-filter="ok">Healthy</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container-fluid px-4">
+    <!-- STATISTICS BAR -->
+    <div class="stats-bar" id="statsBar">
+        <div class="stat-card">
+            <div class="stat-value" id="totalSites">0</div>
+            <div class="stat-label">Total Sites</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--green)" id="sitesOk">0</div>
+            <div class="stat-label">Healthy</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--red)" id="sitesError">0</div>
+            <div class="stat-label">With Issues</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--orange)" id="sslExpiring">0</div>
+            <div class="stat-label">SSL Expiring</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--blue)" id="securityScore">0</div>
+            <div class="stat-label">Avg Security</div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- SITES LIST -->
+        <div class="col-lg-8">
+            <h5 class="mb-3">
+                <i class="fas fa-globe me-2"></i>Sites
+                <small class="text-muted ms-2" id="sitesCount"></small>
+            </h5>
+            <div id="sitesList">
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-spinner fa-spin fa-2x mb-3 d-block"></i>
+                    Loading data...
+                </div>
+            </div>
+
+            <!-- RESPONSE TIME CHART -->
+            <div class="chart-container">
+                <h6 class="mb-3"><i class="fas fa-chart-line me-2"></i>Response Time Overview</h6>
+                <canvas id="responseTimeChart" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- ALERTS PANEL -->
+        <div class="col-lg-4">
+            <h5 class="mb-3">
+                <i class="fas fa-bell me-2"></i>Recent Alerts
+            </h5>
+            <div class="alerts-panel" id="alertsPanel">
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-check-circle" style="color: var(--green)"></i>
+                    No alerts yet
+                </div>
+            </div>
+
+            <!-- SECURITY SCORE CHART -->
+            <div class="chart-container mt-3">
+                <h6 class="mb-3"><i class="fas fa-shield-alt me-2"></i>Security Scores</h6>
+                <canvas id="securityChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SITE DETAIL MODAL -->
+<div class="modal fade" id="siteDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title" id="modalTitle">
+                    <i class="fas fa-globe me-2"></i>Details
+                </h5>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // ===== WEBSOCKET =====
+    const socket = io();
+    let sitesData = [];
+    let currentFilter = 'all';
+    let responseTimeChart = null;
+    let securityChart = null;
+
+    socket.on('connect', () => {
+        console.log('Connected to monitoring server');
+    });
+
+    socket.on('initial_data', (data) => {
+        sitesData = data.sites;
+        renderSites(sitesData);
+        renderAlerts(data.alerts);
+        updateStats(sitesData);
+        updateCharts(sitesData);
+        document.getElementById('lastUpdate').textContent =
+            'Last update: ' + new Date().toLocaleString('ru-RU');
+    });
+
+    socket.on('site_update', (data) => {
+        const idx = sitesData.findIndex(s => s.domain === data.domain);
+        if (idx >= 0) {
+            sitesData[idx] = { ...sitesData[idx], ...data.status, domain: data.domain };
+        } else {
+            sitesData.push({ domain: data.domain, ...data.status });
+        }
+        // Re-sort: problematic sites first
+        sitesData.sort((a, b) => {
+            const order = { critical: 0, high: 1, medium: 2, low: 3, ok: 4 };
+            const aOrder = order[a.overall_severity || 'ok'] || 4;
+            const bOrder = order[b.overall_severity || 'ok'] || 4;
+            return aOrder - bOrder;
+        });
+        renderSites(sitesData);
+        updateStats(sitesData);
+        updateCharts(sitesData);
+        document.getElementById('lastUpdate').textContent =
+            'Last update: ' + new Date().toLocaleString('ru-RU');
+    });
+
+    socket.on('new_alert', (alert) => {
+        addAlertToPanel(alert);
+        if (alert.severity === 'critical') {
+            playAlertSound();
+        }
+    });
+
+    socket.on('sitemap_update', (data) => {
+        const modalTitle = document.getElementById('modalTitle');
+        if (modalTitle && modalTitle.dataset.domain === data.domain) {
+            renderSitemapTree(data.tree, 'sitemapTreeContainer');
+        }
+    });
+
+    // ===== RENDER SITES =====
+    function renderSites(sites) {
+        const container = document.getElementById('sitesList');
+        let filteredSites = sites;
+
+        if (currentFilter === 'error') {
+            filteredSites = sites.filter(s =>
+                s.overall_severity && s.overall_severity !== 'ok'
+            );
+        } else if (currentFilter === 'ok') {
+            filteredSites = sites.filter(s =>
+                !s.overall_severity || s.overall_severity === 'ok'
+            );
+        }
+
+        const search = document.getElementById('searchInput').value.toLowerCase();
+        if (search) {
+            filteredSites = filteredSites.filter(s =>
+                s.domain.toLowerCase().includes(search) ||
+                (s.name || '').toLowerCase().includes(search)
+            );
+        }
+
+        document.getElementById('sitesCount').textContent =
+            `(${filteredSites.length} of ${sites.length})`;
+
+        if (filteredSites.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-check-circle fa-2x mb-3 d-block"
+                       style="color: var(--green)"></i>
+                    No sites matching the filter
+                </div>`;
+            return;
+        }
+
+        container.innerHTML = filteredSites.map(site => {
+            const severity = site.overall_severity || 'ok';
+            const statusClass = severity === 'ok' ? 'status-ok' :
+                               (severity === 'critical' ? 'status-critical' : 'status-warning');
+            const indicatorClass = severity === 'ok' ? 'green' :
+                                  (severity === 'critical' ? 'red' : 'orange');
+            const responseTime = site.response_time_ms || 0;
+            const rtClass = responseTime < 500 ? 'fast' :
+                           (responseTime < 2000 ? 'medium' : 'slow');
+            const secScore = site.security_score || 0;
+
+            let issuesBadges = '';
+            if (site.issues && site.issues.length > 0) {
+                const grouped = {};
+                site.issues.forEach(i => {
+                    grouped[i.severity] = (grouped[i.severity] || 0) + 1;
+                });
+                Object.entries(grouped).forEach(([sev, count]) => {
+                    issuesBadges += `<span class="issue-badge ${sev}">${count} ${sev}</span> `;
+                });
+            }
+
+            let sslBadge = '';
+            if (site.ssl_days_left !== undefined && site.ssl_days_left !== null) {
+                if (site.ssl_days_left < 0) {
+                    sslBadge = '<span class="issue-badge critical">SSL expired</span>';
+                } else if (site.ssl_days_left <= 30) {
+                    sslBadge = `<span class="issue-badge high">SSL: ${site.ssl_days_left}d</span>`;
+                }
+            }
+
+            return `
+                <div class="site-card ${statusClass}"
+                     onclick="openSiteDetail('${site.domain}')">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="status-indicator ${indicatorClass}"></span>
+                                <strong style="font-size: 16px">${site.domain}</strong>
+                                <span class="text-muted ms-2" style="font-size: 13px">
+                                    ${site.name || ''}
+                                </span>
+                            </div>
+                            <div class="d-flex gap-2 flex-wrap">
+                                ${issuesBadges}
+                                ${sslBadge}
+                            </div>
+                            ${site.error_summary ? `
+                                <div class="mt-2" style="color: var(--red); font-size: 13px;">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>
+                                    ${site.error_summary}
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="text-end">
+                            <div class="response-time ${rtClass}">
+                                ${responseTime > 0 ? responseTime + 'ms' : '--'}
+                            </div>
+                            <div class="mt-1">
+                                <small class="text-muted">
+                                    Security: <strong>${secScore}/100</strong>
+                                </small>
+                            </div>
+                            <div class="mt-1">
+                                <small class="text-muted">
+                                    ${site.last_updated ?
+                                        new Date(site.last_updated).toLocaleTimeString('ru-RU') :
+                                        '--'}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // ===== RENDER ALERTS =====
+    function renderAlerts(alerts) {
+        const panel = document.getElementById('alertsPanel');
+        if (!alerts || alerts.length === 0) {
+            panel.innerHTML = `
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-check-circle" style="color: var(--green)"></i>
+                    No alerts yet
+                </div>`;
+            return;
+        }
+        panel.innerHTML = alerts.map(alert => createAlertHtml(alert)).join('');
+    }
+
+    function addAlertToPanel(alert) {
+        const panel = document.getElementById('alertsPanel');
+        const emptyMsg = panel.querySelector('.text-center');
+        if (emptyMsg) panel.innerHTML = '';
+        const html = createAlertHtml(alert);
+        panel.insertAdjacentHTML('afterbegin', html);
+        while (panel.children.length > 50) {
+            panel.removeChild(panel.lastChild);
+        }
+    }
+
+    function createAlertHtml(alert) {
+        const severityColors = {
+            critical: '#ff1744', high: '#ff9100', medium: '#ffea00',
+            low: '#2979ff', info: '#00e676'
+        };
+        const color = severityColors[alert.severity] || '#a0a0b0';
+        const time = alert.timestamp ?
+            new Date(alert.timestamp).toLocaleTimeString('ru-RU') : '--';
+        return `
+            <div class="alert-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <span style="color: ${color}; font-size: 10px;">&#9679;</span>
+                        <strong>${alert.domain}</strong>
+                    </div>
+                    <small class="text-muted">${time}</small>
+                </div>
+                <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
+                    ${alert.description || ''}
+                </div>
+            </div>
+        `;
+    }
+
+    // ===== STATISTICS =====
+    function updateStats(sites) {
+        const total = sites.length;
+        const ok = sites.filter(s => !s.overall_severity || s.overall_severity === 'ok').length;
+        const errors = total - ok;
+        const sslExpiring = sites.filter(s =>
+            s.ssl_days_left !== undefined && s.ssl_days_left <= 30
+        ).length;
+        const avgSecurity = sites.length > 0 ?
+            Math.round(sites.reduce((sum, s) => sum + (s.security_score || 0), 0) / sites.length) : 0;
+
+        document.getElementById('totalSites').textContent = total;
+        document.getElementById('sitesOk').textContent = ok;
+        document.getElementById('sitesError').textContent = errors;
+        document.getElementById('sslExpiring').textContent = sslExpiring;
+        document.getElementById('securityScore').textContent = avgSecurity;
+    }
+
+    // ===== CHARTS =====
+    function updateCharts(sites) {
+        updateResponseTimeChart(sites);
+        updateSecurityChart(sites);
+    }
+
+    function updateResponseTimeChart(sites) {
+        const ctx = document.getElementById('responseTimeChart');
+        if (!ctx) return;
+
+        const labels = sites.map(s => s.domain);
+        const data = sites.map(s => s.response_time_ms || 0);
+        const colors = data.map(rt =>
+            rt < 500 ? '#00e676' :
+            (rt < 2000 ? '#ff9100' : '#ff1744')
+        );
+
+        if (responseTimeChart) {
+            responseTimeChart.data.labels = labels;
+            responseTimeChart.data.datasets[0].data = data;
+            responseTimeChart.data.datasets[0].backgroundColor = colors;
+            responseTimeChart.update('none');
+        } else {
+            responseTimeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Response Time (ms)',
+                        data: data,
+                        backgroundColor: colors,
+                        borderRadius: 4,
+                        barThickness: 20,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#16213e',
+                            titleColor: '#e8e8e8',
+                            bodyColor: '#a0a0b0',
+                            borderColor: 'rgba(255,255,255,0.1)',
+                            borderWidth: 1,
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#a0a0b0',
+                                font: { size: 10 },
+                                maxRotation: 45
+                            },
+                            grid: { display: false }
+                        },
+                        y: {
+                            ticks: { color: '#a0a0b0' },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            title: {
+                                display: true,
+                                text: 'ms',
+                                color: '#a0a0b0'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    function updateSecurityChart(sites) {
+        const ctx = document.getElementById('securityChart');
+        if (!ctx) return;
+
+        const labels = sites.map(s => s.domain);
+        const data = sites.map(s => s.security_score || 0);
+        const colors = data.map(score =>
+            score >= 75 ? '#00e676' :
+            (score >= 50 ? '#ff9100' : '#ff1744')
+        );
+
+        if (securityChart) {
+            securityChart.data.labels = labels;
+            securityChart.data.datasets[0].data = data;
+            securityChart.data.datasets[0].backgroundColor = colors;
+            securityChart.update('none');
+        } else {
+            securityChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors,
+                        borderColor: '#0f0f23',
+                        borderWidth: 2,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#a0a0b0',
+                                font: { size: 10 },
+                                boxWidth: 12,
+                                padding: 8,
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#16213e',
+                            titleColor: '#e8e8e8',
+                            bodyColor: '#a0a0b0',
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.parsed + '/100';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // ===== SITE DETAIL =====
+    async function openSiteDetail(domain) {
+        const modal = new bootstrap.Modal(document.getElementById('siteDetailModal'));
+        const modalTitle = document.getElementById('modalTitle');
+        const modalBody = document.getElementById('modalBody');
+
+        modalTitle.innerHTML = `<i class="fas fa-globe me-2"></i>${domain}`;
+        modalTitle.dataset.domain = domain;
+        modalBody.innerHTML = '<div class="text-center py-5"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+        modal.show();
+
+        try {
+            const response = await fetch(`/api/site/${domain}`);
+            const data = await response.json();
+            modalBody.innerHTML = renderSiteDetail(data);
+            if (data.sitemap_tree) {
+                renderSitemapTree(data.sitemap_tree, 'sitemapTreeContainer');
+            }
+        } catch (error) {
+            modalBody.innerHTML = `
+                <div class="text-center text-danger py-5">
+                    <i class="fas fa-exclamation-triangle fa-2x mb-3 d-block"></i>
+                    Error loading data: ${error.message}
+                </div>`;
+        }
+    }
+
+    function renderSiteDetail(data) {
+        const status = data.status || {};
+        const secScore = status.security_score || 0;
+        const secClass = secScore >= 75 ? 'good' : (secScore >= 50 ? 'medium' : 'bad');
+
+        let sslHtml = '';
+        if (status.ssl) {
+            const ssl = status.ssl;
+            const sslClass = ssl.is_expired ? 'expired' :
+                            (ssl.is_expiring_soon ? 'expiring' :
+                            (ssl.has_ssl ? 'valid' : 'missing'));
+            sslHtml = `
+                <div class="ssl-info ${sslClass}">
+                    <strong>SSL Certificate:</strong>
+                    ${ssl.has_ssl ? 'Installed' : 'Missing'}
+                    ${ssl.issuer ? `<br>Issuer: ${ssl.issuer}` : ''}
+                    ${ssl.days_until_expiry !== null ?
+                        `<br>Expires in: <strong>${ssl.days_until_expiry} days</strong>` : ''}
+                    ${ssl.valid_until ? `<br>Valid until: ${ssl.valid_until}` : ''}
+                    ${ssl.error_message ? `<br><span style="color:var(--red)">${ssl.error_message}</span>` : ''}
+                </div>`;
+        }
+
+        let threatsHtml = '';
+        if (status.threats && status.threats.length > 0) {
+            threatsHtml = `
+                <h6 class="mt-3"><i class="fas fa-shield-alt me-2"></i>Detected Threats</h6>
+                <div class="table-responsive">
+                    <table class="table table-dark table-sm">
+                        <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                                <th>Recommendation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${status.threats.map(t => `
+                                <tr>
+                                    <td><span class="issue-badge ${t.severity}">${t.severity}</span></td>
+                                    <td>${t.threat_type}</td>
+                                    <td>${t.description}</td>
+                                    <td>${t.recommendation || '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+        }
+
+        let uiTestsHtml = '';
+        if (status.ui_elements && status.ui_elements.length > 0) {
+            uiTestsHtml = `
+                <h6 class="mt-3"><i class="fas fa-mouse-pointer me-2"></i>UI Elements</h6>
+                <div class="row">
+                    ${status.ui_elements.map(el => `
+                        <div class="col-md-6 mb-2">
+                            <div class="tree-node ${el.action_success ? 'ok' : 'error'}">
+                                <span>
+                                    ${el.action_success ? 'OK' : 'FAIL'} ${el.name}
+                                </span>
+                                <small class="text-muted">${el.action}</small>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>`;
+        }
+
+        return `
+            <div class="row">
+                <div class="col-md-4 text-center mb-3">
+                    <div class="security-score ${secClass}">${secScore}</div>
+                    <small class="text-muted d-block mt-2">Security Score</small>
+                </div>
+                <div class="col-md-8 mb-3">
+                    <div class="mb-2">
+                        <strong>Availability:</strong>
+                        ${status.is_available ?
+                            '<span style="color:var(--green)">Available</span>' :
+                            '<span style="color:var(--red)">Unavailable</span>'}
+                    </div>
+                    <div class="mb-2">
+                        <strong>HTTP Status:</strong> ${status.https_status || status.http_status || '--'}
+                    </div>
+                    <div class="mb-2">
+                        <strong>Response Time:</strong> ${status.response_time_ms || '--'}ms
+                    </div>
+                    <div class="mb-2">
+                        <strong>DNS:</strong>
+                        ${status.dns_resolved ? `Resolved ${status.dns_ip || ''}` : 'Not resolving'}
+                    </div>
+                    <div class="mb-2">
+                        <strong>WAF:</strong>
+                        ${status.has_waf ? `Detected ${status.waf_name || ''}` : 'Not detected'}
+                    </div>
+                </div>
+            </div>
+            ${sslHtml}
+            ${uiTestsHtml}
+            ${threatsHtml}
+            <h6 class="mt-3"><i class="fas fa-sitemap me-2"></i>Site Structure (Sitemap)</h6>
+            <div id="sitemapTreeContainer" class="sitemap-tree">
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-spinner fa-spin"></i> Loading sitemap...
+                </div>
+            </div>
+        `;
+    }
+
+    // ===== SITEMAP TREE =====
+    function renderSitemapTree(tree, containerId) {
+        const container = document.getElementById(containerId);
+        if (!container || !tree) return;
+        container.innerHTML = renderTreeNode(tree, 0);
+    }
+
+    function renderTreeNode(node, depth) {
+        const statusClass = node.status === 'ok' ? 'ok' :
+                           (node.status === 'error' ? 'error' : 'unknown');
+        const statusIcon = node.status === 'ok' ? 'OK' :
+                          (node.status === 'error' ? 'ERR' : '?');
+
+        const rtHtml = node.response_time_ms ?
+            `<span class="response-time">${node.response_time_ms}ms</span>` : '';
+        const codeHtml = node.status_code ?
+            `<small class="text-muted">[${node.status_code}]</small>` : '';
+
+        let childrenHtml = '';
+        if (node.children && node.children.length > 0) {
+            childrenHtml = `
+                <div class="tree-children">
+                    ${node.children.map(child => renderTreeNode(child, depth + 1)).join('')}
+                </div>`;
+        }
+
+        return `
+            <div class="tree-node ${statusClass}">
+                <span>
+                    ${statusIcon}
+                    <strong>${node.name || node.path}</strong>
+                    <small class="text-muted ms-2">${node.path || ''}</small>
+                </span>
+                <span>
+                    ${codeHtml} ${rtHtml}
+                </span>
+            </div>
+            ${childrenHtml}
+        `;
+    }
+
+    // ===== FILTERS AND SEARCH =====
+    function setFilter(filter) {
+        currentFilter = filter;
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.filter === filter);
+        });
+        renderSites(sitesData);
+    }
+
+    function filterSites() {
+        renderSites(sitesData);
+    }
+
+    // ===== ALERT SOUND =====
+    function playAlertSound() {
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            gainNode.gain.value = 0.3;
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.5);
+        } catch(e) {
+            console.warn('Audio alert not available');
+        }
+    }
+
+    // ===== AUTO-REFRESH (every 30 seconds) =====
+    setInterval(() => {
+        fetch('/api/sites')
+            .then(r => r.json())
+            .then(data => {
+                sitesData = data;
+                renderSites(data);
+                updateStats(data);
+                updateCharts(data);
+                document.getElementById('lastUpdate').textContent =
+                    'Last update: ' + new Date().toLocaleString('ru-RU');
+            })
+            .catch(e => console.error('Auto-refresh error:', e));
+    }, 30000);
+</script>
+{% endblock %}
