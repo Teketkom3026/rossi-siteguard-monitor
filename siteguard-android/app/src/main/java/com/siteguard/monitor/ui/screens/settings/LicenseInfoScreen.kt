@@ -169,7 +169,7 @@ fun LicenseInfoScreen(
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                    Divider(color = Color.White.copy(alpha = 0.1f))
                     Spacer(modifier = Modifier.height(16.dp))
 
                     LicenseDetailRow("License Key", info.licenseKey)

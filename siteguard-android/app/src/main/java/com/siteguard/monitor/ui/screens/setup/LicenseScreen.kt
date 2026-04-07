@@ -329,7 +329,7 @@ fun LicenseScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            HorizontalDivider(
+            Divider(
                 modifier = Modifier.weight(1f),
                 color = Color.White.copy(alpha = 0.1f)
             )
@@ -338,7 +338,7 @@ fun LicenseScreen(
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 14.sp
             )
-            HorizontalDivider(
+            Divider(
                 modifier = Modifier.weight(1f),
                 color = Color.White.copy(alpha = 0.1f)
             )
