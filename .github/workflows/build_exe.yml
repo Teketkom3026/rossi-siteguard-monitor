@@ -1,0 +1,80 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      working-directory: siteguard-desktop
+      run: |
+        pip install pyinstaller pyqt6 httpx keyring cryptography
+
+    - name: Build EXE with PyInstaller
+      working-directory: siteguard-desktop
+      run: |
+        pyinstaller --onefile --windowed --name RossiSiteGuardMonitor `
+          --add-data "resources;resources" `
+          --add-data "core;core" `
+          --add-data "ui;ui" `
+          --hidden-import PyQt6.QtCore `
+          --hidden-import PyQt6.QtWidgets `
+          --hidden-import PyQt6.QtGui `
+          --hidden-import PyQt6.sip `
+          --hidden-import httpx `
+          --hidden-import httpx._transports `
+          --hidden-import httpx._transports.default `
+          --hidden-import cryptography `
+          --hidden-import cryptography.fernet `
+          --hidden-import cryptography.hazmat `
+          --hidden-import cryptography.hazmat.primitives `
+          --hidden-import cryptography.hazmat.backends `
+          --hidden-import keyring `
+          --hidden-import keyring.backends `
+          --hidden-import keyring.backends.Windows `
+          --exclude-module tkinter `
+          --exclude-module matplotlib `
+          --exclude-module numpy `
+          main.py
+
+    - name: Upload EXE artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: RossiSiteGuardMonitor-Windows-EXE
+        path: siteguard-desktop/dist/RossiSiteGuardMonitor.exe
+        if-no-files-found: error
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: siteguard-desktop/dist/RossiSiteGuardMonitor.exe
+        name: "Rossi SiteGuard Monitor ${{ github.ref_name }}"
+        body: |
+          ## Rossi SiteGuard Monitor ${{ github.ref_name }}
+
+          ### Загрузки
+          - **Windows EXE**: RossiSiteGuardMonitor.exe
+
+          ### Системные требования
+          - Windows 10/11 (64-bit)
+          - .NET Framework 4.7+ (обычно уже установлен)
+
+          ### Установка
+          1. Скачайте RossiSiteGuardMonitor.exe
+          2. Запустите файл
+          3. При первом запуске введите лицензионный ключ
+          4. Укажите URL сервера мониторинга
