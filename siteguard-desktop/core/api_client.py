@@ -17,8 +17,9 @@ import httpx
 
 logger = logging.getLogger("SiteGuard.APIClient")
 
-# Default backend URL - can be overridden via environment variable
-DEFAULT_API_URL = os.getenv("SITEGUARD_API_URL", "https://api.siteguard.app/api/v1")
+# Default backend URL — points to the production server
+# Can be overridden via environment variable SITEGUARD_API_URL
+DEFAULT_API_URL = os.getenv("SITEGUARD_API_URL", "http://87.228.29.55/api/v1")
 DEFAULT_TIMEOUT = 30.0
 
 
@@ -80,7 +81,7 @@ class APIClient:
         """Execute an HTTP request and return the JSON response."""
         url = f"{self.base_url}{path}"
         try:
-            with httpx.Client(timeout=self.timeout, verify=True) as client:
+            with httpx.Client(timeout=self.timeout, verify=False) as client:
                 response = client.request(
                     method,
                     url,
@@ -107,54 +108,61 @@ class APIClient:
         """
         Activate a license key (or start a trial with key='TRIAL').
         Returns license info on success.
+
+        Sends: license_key, device_id (hardware fingerprint), device_type
+        Matches FastAPI schema: LicenseActivateRequest
         """
         from core.license_manager import LicenseManager
 
-        hardware_id = LicenseManager.generate_hardware_id()
+        device_id = LicenseManager.generate_hardware_id()
         result = self._request(
             "POST",
-            "/licenses/activate",
+            "/license/activate",
             json_data={
                 "license_key": license_key,
-                "hardware_id": hardware_id,
-                "device_name": os.getenv("COMPUTERNAME", "Desktop"),
+                "device_id": device_id,
+                "device_type": "windows",
+                "device_info": {
+                    "computer_name": os.getenv("COMPUTERNAME", "Desktop"),
+                    "app_version": "1.0.0",
+                },
             },
         )
-        if result and result.get("success"):
+        if result and result.get("is_valid"):
             self._license_key = license_key
-            self._token = result.get("token", self._token)
             self._save_credentials()
         return result
 
     def validate_license(self) -> dict | None:
-        """Validate the current license key against the server."""
+        """Validate the current license key against the server (heartbeat)."""
         from core.license_manager import LicenseManager
 
-        hardware_id = LicenseManager.generate_hardware_id()
+        device_id = LicenseManager.generate_hardware_id()
         return self._request(
             "POST",
-            "/licenses/validate",
+            "/license/validate",
             json_data={
                 "license_key": self._license_key,
-                "hardware_id": hardware_id,
+                "device_id": device_id,
+                "device_type": "windows",
             },
         )
 
     def get_license_info(self) -> dict | None:
         """Retrieve full license information from the server."""
-        return self._request("GET", "/licenses/info")
+        return self._request("GET", "/license/info")
 
     def deactivate_device(self) -> dict | None:
         """Deactivate the current device from the license."""
         from core.license_manager import LicenseManager
 
-        hardware_id = LicenseManager.generate_hardware_id()
+        device_id = LicenseManager.generate_hardware_id()
         result = self._request(
             "POST",
-            "/licenses/deactivate-device",
-            json_data={"hardware_id": hardware_id},
+            "/license/deactivate-device",
+            params={"device_id": device_id},
         )
-        if result and result.get("success"):
+        if result and result.get("message"):
             self._license_key = None
             self._token = None
             self._save_credentials()
