@@ -274,7 +274,7 @@ class LicenseDialog(QDialog):
 
         try:
             result = self.api_client.activate_license(key)
-            if result and result.get("success"):
+            if result and (result.get("is_valid") or result.get("success")):
                 self._activated_key = key
                 self._show_license_info(result)
                 self.status_label.setText(
@@ -296,7 +296,7 @@ class LicenseDialog(QDialog):
     def _start_trial(self):
         try:
             result = self.api_client.activate_license("TRIAL")
-            if result and result.get("success"):
+            if result and (result.get("is_valid") or result.get("success")):
                 self._activated_key = "TRIAL"
                 self._show_license_info(result)
                 self.status_label.setText(
