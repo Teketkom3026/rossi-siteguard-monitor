@@ -171,10 +171,21 @@ def main():
 
         _update_splash(splash, app, "Validating license...")
 
-        is_valid, message = lm.validate_on_start()
+        # Offline HMAC validation — no network required
+        from core.license_validator import validate_key
+
+        stored_key = lm.get_stored_key()
+        is_valid = False
+        message = "No license key found. Please activate a license."
+        if stored_key:
+            if stored_key == "TRIAL-MODE":
+                is_valid, message = True, "Trial mode active"
+            else:
+                is_valid, message, _info = validate_key(stored_key)
+
         if not is_valid:
             splash.close()
-            logger.warning(f"License invalid: {message}")
+            logger.warning("License invalid: %s", message)
             reply = QMessageBox.warning(
                 None,
                 "License",
@@ -186,7 +197,7 @@ def main():
 
                 dialog = LicenseDialog()
                 if dialog.exec():
-                    setup_data["license_key"] = dialog.get_key()
+                    setup_data["license_key"] = dialog.get_activated_key()
                     lm.save_setup_data(setup_data)
                 else:
                     sys.exit(0)

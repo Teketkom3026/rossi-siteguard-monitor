@@ -1,369 +1,298 @@
 """
-SiteGuard Monitor Pro - License Activation Dialog
-
-License activation dialog with key input field (format SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX),
-plan info display, device management. Dark themed.
+SiteGuard Monitor — License Dialog
+Offline-first активация: ключ проверяется локально по HMAC.
+Сервер используется опционально для синхронизации (3 сек таймаут).
+407/502/timeout — не ошибка, активация всё равно проходит.
 """
-import re
+from __future__ import annotations
 
+import json
+import logging
+import os
+import threading
+from pathlib import Path
+
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QDialog,
-    QVBoxLayout,
+    QDialogButtonBox,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
-    QGroupBox,
-    QFormLayout,
-    QFrame,
     QMessageBox,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
-    QDialogButtonBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
-from core.api_client import APIClient
+from core.license_validator import validate_key, PLAN_CONFIG
 from core.license_manager import LicenseManager
 
-# License key pattern: SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
-LICENSE_KEY_PATTERN = re.compile(
-    r"^SG-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$"
-)
+logger = logging.getLogger("SiteGuard.LicenseDialog")
+
+
+class _ServerSync(QObject):
+    """Асинхронная синхронизация с сервером — не блокирует UI."""
+    done = pyqtSignal(bool, str)
+
+    def run(self, license_key: str):
+        def _worker():
+            try:
+                import httpx
+                resp = httpx.post(
+                    "http://87.228.29.55/api/v1/license/activate",
+                    json={
+                        "license_key": license_key,
+                        "device_id": LicenseManager.generate_hardware_id(),
+                        "device_type": "windows",
+                    },
+                    timeout=3.0,
+                    verify=False,
+                )
+                data = resp.json()
+                self.done.emit(True, json.dumps(data))
+            except Exception as e:
+                # Сеть недоступна / прокси / таймаут — не критично
+                logger.warning("Server sync skipped: %s", e)
+                self.done.emit(False, str(e))
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
 
 
 class LicenseDialog(QDialog):
-    """Dialog for entering and activating a license key."""
+    """
+    Диалог активации лицензии.
+    Активация ключа происходит ОФЛАЙН — сеть не требуется.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.api_client = APIClient()
+        self.setWindowTitle("SiteGuard Monitor — Лицензия")
+        self.setFixedWidth(520)
+        self.setModal(True)
         self.license_manager = LicenseManager()
         self._activated_key: str | None = None
+        self._setup_ui()
+        self._check_existing_license()
 
-        self.setWindowTitle("SiteGuard Monitor - License Activation")
-        self.setMinimumSize(600, 520)
-        self.setModal(True)
-
-        self._apply_style()
-        self._build_ui()
-
-    # ------------------------------------------------------------------
-    # Style
-    # ------------------------------------------------------------------
-    def _apply_style(self):
-        self.setStyleSheet(
-            """
-            QDialog {
-                background-color: #1a1a2e;
-                color: #e0e0e0;
-            }
-            QLabel {
-                color: #e0e0e0;
-                font-size: 13px;
-            }
-            QLineEdit {
-                background-color: #16213e;
-                border: 1px solid #2a2a5e;
-                border-radius: 6px;
-                color: #e0e0e0;
-                padding: 10px;
-                font-size: 14px;
-                font-family: 'Courier New', monospace;
-            }
-            QLineEdit:focus {
-                border: 1px solid #4a90d9;
-            }
-            QPushButton {
-                background-color: #4a90d9;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 10px 20px;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #5aa0e9;
-            }
-            QPushButton:pressed {
-                background-color: #3a80c9;
-            }
-            QPushButton:disabled {
-                background-color: #555;
-                color: #999;
-            }
-            QGroupBox {
-                color: #4a90d9;
-                font-size: 14px;
-                font-weight: bold;
-                border: 1px solid #2a2a5e;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 15px;
-                padding: 0 5px;
-            }
-            QTableWidget {
-                background-color: #16213e;
-                border: 1px solid #2a2a5e;
-                border-radius: 6px;
-                color: #e0e0e0;
-                gridline-color: #2a2a5e;
-            }
-            QHeaderView::section {
-                background-color: #0a0a1a;
-                color: #a0a0b0;
-                padding: 6px;
-                border: none;
-                border-bottom: 2px solid #4a90d9;
-                font-weight: bold;
-            }
-            """
-        )
-
-    # ------------------------------------------------------------------
+    # ──────────────────────────────────────────────────────────────────
     # UI
-    # ------------------------------------------------------------------
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+    # ──────────────────────────────────────────────────────────────────
 
-        # Title
-        title = QLabel("License Activation")
-        title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
-        title.setStyleSheet("color: #4a90d9;")
+    def _setup_ui(self):
+        self.setStyleSheet("""
+            QDialog { background: #0f0f23; color: #e0e0ff; }
+            QGroupBox {
+                border: 1px solid #2a2a4a; border-radius: 8px;
+                margin-top: 12px; padding: 12px;
+                font-size: 13px; font-weight: bold; color: #e0e0ff;
+            }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
+            QLineEdit {
+                background: #1a1a2e; border: 1px solid #3a3a5a;
+                border-radius: 6px; padding: 10px 14px;
+                color: #e0e0ff; font-size: 14px; font-family: monospace;
+            }
+            QLineEdit:focus { border-color: #6c63ff; }
+            QPushButton {
+                border-radius: 7px; padding: 10px 20px;
+                font-size: 13px; font-weight: bold;
+            }
+            QPushButton#activateBtn {
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                    stop:0 #6c63ff, stop:1 #e040fb);
+                color: white; border: none;
+            }
+            QPushButton#activateBtn:disabled { background: #2a2a4a; color: #555; }
+            QPushButton#trialBtn {
+                background: #2ed573; color: #0f0f23; border: none;
+            }
+            QPushButton#trialBtn:disabled { background: #1a3a2a; color: #444; }
+            QLabel#statusLabel { font-size: 12px; min-height: 20px; }
+            QLabel { color: #a0a0c0; }
+        """)
+
+        root = QVBoxLayout(self)
+        root.setSpacing(16)
+        root.setContentsMargins(24, 24, 24, 24)
+
+        # ── Заголовок ──────────────────────────────────────────────
+        title = QLabel("🛡 Rossi SiteGuard Monitor")
+        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        title.setStyleSheet("color: #e0e0ff;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        root.addWidget(title)
 
-        # ---- Key input group ----
-        key_group = QGroupBox("Enter License Key")
-        key_layout = QVBoxLayout()
+        # ── Ввод ключа ─────────────────────────────────────────────
+        activation_box = QGroupBox("Активация лицензии")
+        act_layout = QVBoxLayout(activation_box)
+
+        hint = QLabel("Формат: SG-XXXXX-XXXXX-XXXXX-XXXXX-CHKSUM")
+        hint.setStyleSheet("color: #555; font-size: 11px;")
+        act_layout.addWidget(hint)
 
         self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX")
-        self.key_input.setMaxLength(35)
-        self.key_input.textChanged.connect(self._on_key_text_changed)
-        key_layout.addWidget(self.key_input)
+        self.key_input.setPlaceholderText("SG-XXXXX-XXXXX-XXXXX-XXXXX-CHKSUM")
+        self.key_input.setMaxLength(32)
+        self.key_input.textChanged.connect(self._on_key_changed)
+        act_layout.addWidget(self.key_input)
 
-        self.key_format_label = QLabel("Format: SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX")
-        self.key_format_label.setStyleSheet("color: #888; font-size: 11px;")
-        key_layout.addWidget(self.key_format_label)
-
-        btn_row = QHBoxLayout()
-        self.activate_btn = QPushButton("Activate Key")
-        self.activate_btn.setEnabled(False)
-        self.activate_btn.clicked.connect(self._activate_key)
-        btn_row.addWidget(self.activate_btn)
-
-        self.trial_btn = QPushButton("Start 14-Day Trial")
-        self.trial_btn.setStyleSheet(
-            """
-            QPushButton { background-color: #2a6e3f; }
-            QPushButton:hover { background-color: #3a8e4f; }
-            """
-        )
-        self.trial_btn.clicked.connect(self._start_trial)
-        btn_row.addWidget(self.trial_btn)
-
-        key_layout.addLayout(btn_row)
-        key_group.setLayout(key_layout)
-        layout.addWidget(key_group)
-
-        # ---- Status ----
         self.status_label = QLabel("")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setObjectName("statusLabel")
         self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        act_layout.addWidget(self.status_label)
 
-        # ---- License info group (hidden until activation) ----
-        self.info_group = QGroupBox("License Information")
-        self.info_group.setVisible(False)
-        info_layout = QFormLayout()
+        self.activate_btn = QPushButton("Активировать ключ")
+        self.activate_btn.setObjectName("activateBtn")
+        self.activate_btn.setEnabled(False)
+        self.activate_btn.setMinimumHeight(44)
+        self.activate_btn.clicked.connect(self._activate_key)
+        act_layout.addWidget(self.activate_btn)
 
-        self.plan_label = QLabel("-")
-        self.max_sites_label = QLabel("-")
-        self.expires_label = QLabel("-")
-        self.features_label = QLabel("-")
-        self.features_label.setWordWrap(True)
+        root.addWidget(activation_box)
 
-        info_layout.addRow("Plan:", self.plan_label)
-        info_layout.addRow("Max Sites:", self.max_sites_label)
-        info_layout.addRow("Valid Until:", self.expires_label)
-        info_layout.addRow("Features:", self.features_label)
+        # ── Информация о лицензии (скрыта до активации) ────────────
+        self.info_box = QGroupBox("Информация о лицензии")
+        self.info_box.setVisible(False)
+        info_layout = QVBoxLayout(self.info_box)
 
-        self.info_group.setLayout(info_layout)
-        layout.addWidget(self.info_group)
+        def info_row(label_text, value_name):
+            row = QHBoxLayout()
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet("color: #666;")
+            val = QLabel("—")
+            val.setStyleSheet("color: #e0e0ff; font-weight: bold;")
+            setattr(self, value_name, val)
+            row.addWidget(lbl)
+            row.addStretch()
+            row.addWidget(val)
+            info_layout.addLayout(row)
 
-        # ---- Device management group ----
-        self.device_group = QGroupBox("Registered Devices")
-        self.device_group.setVisible(False)
-        dev_layout = QVBoxLayout()
+        info_row("Тариф:", "plan_label")
+        info_row("Максимум сайтов:", "max_sites_label")
+        info_row("Лицензионный ключ:", "key_label")
 
-        self.device_table = QTableWidget()
-        self.device_table.setColumnCount(3)
-        self.device_table.setHorizontalHeaderLabels(["Device Name", "Hardware ID", "Registered"])
-        dh = self.device_table.horizontalHeader()
-        dh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.device_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        dev_layout.addWidget(self.device_table)
+        root.addWidget(self.info_box)
 
-        deactivate_btn = QPushButton("Deactivate This Device")
-        deactivate_btn.setStyleSheet(
-            """
-            QPushButton { background-color: #c0392b; }
-            QPushButton:hover { background-color: #e74c3c; }
-            """
+        # ── Пробный период ─────────────────────────────────────────
+        trial_row = QHBoxLayout()
+        trial_row.addWidget(QLabel("Нет ключа?"))
+        trial_row.addStretch()
+        self.trial_btn = QPushButton("Начать пробный период (14 дней)")
+        self.trial_btn.setObjectName("trialBtn")
+        self.trial_btn.setMinimumHeight(40)
+        self.trial_btn.clicked.connect(self._start_trial)
+        trial_row.addWidget(self.trial_btn)
+        root.addLayout(trial_row)
+
+        # ── Кнопки OK / Закрыть ────────────────────────────────────
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        deactivate_btn.clicked.connect(self._deactivate_device)
-        dev_layout.addWidget(deactivate_btn)
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Продолжить")
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        root.addWidget(self.button_box)
 
-        self.device_group.setLayout(dev_layout)
-        layout.addWidget(self.device_group)
+    # ──────────────────────────────────────────────────────────────────
+    # Logic
+    # ──────────────────────────────────────────────────────────────────
 
-        # ---- Buttons ----
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet("background-color: #2a2a5e;")
-        layout.addWidget(separator)
-
-        buy_label = QLabel(
-            '<a href="https://siteguard.app/pricing" '
-            'style="color: #4a90d9;">Purchase a license</a>'
-        )
-        buy_label.setOpenExternalLinks(True)
-        buy_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(buy_label)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    # ------------------------------------------------------------------
-    # Slots
-    # ------------------------------------------------------------------
-    def _on_key_text_changed(self, text: str):
-        """Enable the activate button only when key looks valid."""
-        cleaned = text.strip().upper()
-        valid = bool(LICENSE_KEY_PATTERN.match(cleaned))
-        self.activate_btn.setEnabled(valid)
-        if text and not valid:
-            self.key_format_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
-            self.key_format_label.setText("Invalid format. Expected: SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX")
+    def _on_key_changed(self, text: str):
+        """Форматирует ввод и включает кнопку при корректном ключе."""
+        # Нормализуем — убираем лишние символы, ставим дефисы
+        cleaned = text.upper().replace(" ", "").replace("_", "-")
+        is_valid, _, _ = validate_key(cleaned) if len(cleaned) >= 30 else (False, "", {})
+        self.activate_btn.setEnabled(is_valid)
+        if is_valid:
+            self.status_label.setText(
+                '<span style="color:#2ed573;">✓ Формат ключа верный — нажмите Активировать</span>'
+            )
         else:
-            self.key_format_label.setStyleSheet("color: #888; font-size: 11px;")
-            self.key_format_label.setText("Format: SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX")
+            self.status_label.setText("")
 
     def _activate_key(self):
+        """
+        Офлайн-активация: проверяем ключ локально по HMAC.
+        Сервер — только опциональная синхронизация.
+        """
         key = self.key_input.text().strip().upper()
-        if not LICENSE_KEY_PATTERN.match(key):
+        is_valid, error, info = validate_key(key)
+
+        if not is_valid:
             self.status_label.setText(
-                '<span style="color: #ff6b6b;">Invalid license key format</span>'
+                f'<span style="color:#ff4757;">✗ {error}</span>'
             )
             return
 
-        self.activate_btn.setEnabled(False)
-        self.status_label.setText(
-            '<span style="color: #ff9100;">Activating...</span>'
-        )
+        # Ключ валиден — сохраняем локально
+        self.license_manager.store_license_key(key)
+        self._activated_key = key
+        self._show_info(key, info)
 
-        try:
-            result = self.api_client.activate_license(key)
-            if result and (result.get("is_valid") or result.get("success")):
-                self._activated_key = key
-                self._show_license_info(result)
-                self.status_label.setText(
-                    '<span style="color: #00e676;">License activated successfully!</span>'
-                )
-                self.license_manager.store_license_key(key)
-            else:
-                error = result.get("error", "Unknown error") if result else "No response from server"
-                self.status_label.setText(
-                    f'<span style="color: #ff6b6b;">Activation failed: {error}</span>'
-                )
-                self.activate_btn.setEnabled(True)
-        except Exception as e:
-            self.status_label.setText(
-                f'<span style="color: #ff6b6b;">Error: {e}</span>'
-            )
-            self.activate_btn.setEnabled(True)
+        self.status_label.setText(
+            '<span style="color:#2ed573;">✓ Лицензия активирована</span>'
+        )
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+        self.activate_btn.setEnabled(False)
+        self.trial_btn.setEnabled(False)
+
+        # Асинхронно сообщаем серверу (не блокируем UI, ошибки игнорируем)
+        self._sync_with_server(key)
 
     def _start_trial(self):
-        try:
-            result = self.api_client.activate_license("TRIAL")
-            if result and (result.get("is_valid") or result.get("success")):
-                self._activated_key = "TRIAL"
-                self._show_license_info(result)
-                self.status_label.setText(
-                    '<span style="color: #00e676;">14-day trial activated!</span>'
-                )
-                self.license_manager.store_license_key("TRIAL")
-                self.trial_btn.setEnabled(False)
-            else:
-                error = result.get("error", "Unknown error") if result else "Server unavailable"
-                self.status_label.setText(
-                    f'<span style="color: #ff6b6b;">Could not start trial: {error}</span>'
-                )
-        except Exception as e:
-            self.status_label.setText(
-                f'<span style="color: #ff6b6b;">Error: {e}</span>'
-            )
-
-    def _show_license_info(self, data: dict):
-        """Display license info after successful activation."""
-        info = data.get("license_info", data)
-        self.plan_label.setText(info.get("plan", "-").upper())
-        self.max_sites_label.setText(str(info.get("max_sites", "-")))
-        self.expires_label.setText(info.get("expires_at", "-"))
-
-        features = info.get("features", {})
-        if isinstance(features, dict):
-            feat_list = [k for k, v in features.items() if v]
-            self.features_label.setText(", ".join(feat_list) if feat_list else "Basic")
-        else:
-            self.features_label.setText(str(features))
-
-        self.info_group.setVisible(True)
-
-        # Populate devices
-        devices = info.get("devices", [])
-        if devices:
-            self.device_table.setRowCount(len(devices))
-            for i, dev in enumerate(devices):
-                self.device_table.setItem(i, 0, QTableWidgetItem(dev.get("name", "-")))
-                self.device_table.setItem(i, 1, QTableWidgetItem(dev.get("hardware_id", "-")))
-                self.device_table.setItem(i, 2, QTableWidgetItem(dev.get("registered_at", "-")))
-            self.device_group.setVisible(True)
-
-    def _deactivate_device(self):
-        reply = QMessageBox.question(
-            self,
-            "Deactivate Device",
-            "Are you sure you want to deactivate this device?\n"
-            "You will need to re-activate the license to use it again.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        """Активирует 14-дневный пробный период без ключа и без сети."""
+        TRIAL_KEY = "TRIAL-MODE"
+        self.license_manager.store_license_key(TRIAL_KEY)
+        self._activated_key = TRIAL_KEY
+        self.status_label.setText(
+            '<span style="color:#2ed573;">✓ Пробный период активирован (14 дней)</span>'
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                self.api_client.deactivate_device()
-                self.license_manager.clear_license()
-                QMessageBox.information(self, "Done", "Device deactivated successfully.")
-                self.info_group.setVisible(False)
-                self.device_group.setVisible(False)
-                self.status_label.setText("")
-                self.activate_btn.setEnabled(True)
-                self._activated_key = None
-            except Exception as e:
-                QMessageBox.warning(self, "Error", str(e))
+        self.info_box.setVisible(True)
+        self.plan_label.setText("Trial")
+        self.max_sites_label.setText("3")
+        self.key_label.setText("TRIAL-MODE")
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+        self.trial_btn.setEnabled(False)
+        self.activate_btn.setEnabled(False)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-    def get_key(self) -> str | None:
-        """Return the activated key, or None if not activated."""
+    def _show_info(self, key: str, info: dict):
+        """Показывает информацию о лицензии."""
+        self.info_box.setVisible(True)
+        self.plan_label.setText(info.get("label", info.get("plan", "—")).title())
+        self.max_sites_label.setText(str(info.get("max_sites", "—")))
+        self.key_label.setText(key[:20] + "…")
+
+    def _sync_with_server(self, license_key: str):
+        """Фоновая синхронизация с сервером — не влияет на активацию."""
+        sync = _ServerSync()
+        sync.setParent(self)
+        sync.done.connect(lambda ok, msg: logger.info("Server sync: ok=%s %s", ok, msg[:80]))
+        sync.run(license_key)
+
+    def _check_existing_license(self):
+        """При открытии показывает уже активированную лицензию."""
+        key = self.license_manager.get_stored_key()
+        if not key:
+            return
+        if key == "TRIAL-MODE":
+            self._start_trial()
+            return
+        is_valid, _, info = validate_key(key)
+        if is_valid:
+            self.key_input.setText(key)
+            self._activated_key = key
+            self._show_info(key, info)
+            self.status_label.setText(
+                '<span style="color:#2ed573;">✓ Лицензия уже активирована</span>'
+            )
+            self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+            self.activate_btn.setEnabled(False)
+
+    def get_activated_key(self) -> str | None:
         return self._activated_key

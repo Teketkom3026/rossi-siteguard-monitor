@@ -31,6 +31,8 @@ a = Analysis(
         'keyring.backends',
         'keyring.backends.Windows',
         'keyring.backends.SecretService',
+        'core.license_validator',
+        'core.license_manager',
         'json',
         'asyncio',
         'hashlib',

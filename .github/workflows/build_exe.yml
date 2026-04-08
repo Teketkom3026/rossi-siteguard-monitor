@@ -38,6 +38,8 @@ jobs:
           --hidden-import cryptography `
           --hidden-import keyring `
           --hidden-import keyring.backends.Windows `
+          --hidden-import core.license_validator `
+          --hidden-import core.license_manager `
           --exclude-module tkinter `
           --exclude-module matplotlib `
           main.py
