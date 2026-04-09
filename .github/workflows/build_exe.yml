@@ -24,7 +24,7 @@ jobs:
     - name: Install dependencies
       working-directory: siteguard-desktop
       run: |
-        pip install pyinstaller pyqt6 httpx keyring cryptography
+        pip install pyinstaller pyqt6 keyring cryptography
 
     - name: Build EXE with PyInstaller
       working-directory: siteguard-desktop
@@ -34,7 +34,6 @@ jobs:
           --hidden-import PyQt6.QtWidgets `
           --hidden-import PyQt6.QtGui `
           --hidden-import PyQt6.sip `
-          --hidden-import httpx `
           --hidden-import cryptography `
           --hidden-import keyring `
           --hidden-import keyring.backends.Windows `
