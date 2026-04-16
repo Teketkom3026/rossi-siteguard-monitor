@@ -1,5 +1,5 @@
 """
-SiteGuard Monitor Pro - Entry Point v1.1.3
+SiteGuard Monitor Pro - Entry Point v2.0.0
 Simple, direct launch: show window immediately, no wizard, no hidden startup.
 """
 import sys
@@ -51,7 +51,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("SiteGuard Monitor Pro")
     app.setOrganizationName("SiteGuard")
-    app.setApplicationVersion("1.1.3")
+    app.setApplicationVersion("2.0.0")
     # CRITICAL: prevent app from quitting when window is hidden
     app.setQuitOnLastWindowClosed(False)
 

@@ -1,17 +1,12 @@
 """
-SiteGuard Monitor Pro — Main Window v1.2.0
-Офлайн-мониторинг сайтов. Простой и надёжный.
+SiteGuard Monitor Pro — Main Window v2.0.0
+Мониторинг сайтов с обнаружением угроз, email-уведомлениями и историей.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
-import socket
-import ssl
-import time
-import urllib.request
-import urllib.error
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -25,7 +20,7 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon, QMenu,
 )
 from PyQt6.QtCore import (
-    Qt, QTimer, QThread, QObject, pyqtSignal, QSize,
+    Qt, QTimer, QSize,
 )
 from PyQt6.QtGui import (
     QAction, QColor, QFont, QPixmap, QPainter, QIcon, QBrush,
@@ -34,6 +29,8 @@ from PyQt6.QtNetwork import QLocalServer
 
 from core.license_manager import LicenseManager
 from core.license_validator import validate_key
+from core.monitor_engine import MonitorEngine
+from core.notifier import EmailNotifier
 
 logger = logging.getLogger("SiteGuard.MainWindow")
 
@@ -51,6 +48,9 @@ def _app_data_dir() -> Path:
 def _sites_file() -> Path:
     return _app_data_dir() / "sites.json"
 
+def _history_file() -> Path:
+    return _app_data_dir() / "history.json"
+
 def _load_sites() -> List[str]:
     f = _sites_file()
     if not f.exists():
@@ -62,6 +62,15 @@ def _load_sites() -> List[str]:
 
 def _save_sites(domains: List[str]):
     _sites_file().write_text(json.dumps(domains, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def _load_history() -> dict:
+    f = _history_file()
+    if not f.exists():
+        return {}
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 # ---------------------------------------------------------------------------
 # App icon
@@ -76,74 +85,6 @@ def _make_icon() -> QIcon:
     p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "SG")
     p.end()
     return QIcon(pix)
-
-# ---------------------------------------------------------------------------
-# Background monitor thread (QThread subclass — simpler, no deleteLater race)
-# ---------------------------------------------------------------------------
-class MonitorThread(QThread):
-    results_ready = pyqtSignal(dict)
-
-    def __init__(self, domains: List[str], parent=None):
-        super().__init__(parent)
-        self._domains = list(domains)
-        self._stop = False
-
-    def stop_gracefully(self):
-        self._stop = True
-
-    def run(self):
-        results: Dict[str, dict] = {}
-        for domain in self._domains:
-            if self._stop:
-                break
-            results[domain] = self._check(domain)
-        self.results_ready.emit(results)
-
-    def _check(self, domain: str) -> dict:
-        status_code = 0
-        response_ms = 0.0
-        is_up = False
-        ssl_days = None
-
-        for scheme in ("https", "http"):
-            url = f"{scheme}://{domain}"
-            try:
-                t0 = time.time()
-                req = urllib.request.Request(url, method="HEAD")
-                req.add_header("User-Agent", "SiteGuard-Monitor/1.2.0")
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    status_code = resp.status
-                    response_ms = round((time.time() - t0) * 1000)
-                    is_up = status_code < 400
-                break
-            except urllib.error.HTTPError as exc:
-                status_code = exc.code
-                response_ms = round((time.time() - t0) * 1000)
-                is_up = status_code < 400
-                break
-            except Exception:
-                continue
-
-        try:
-            ctx = ssl.create_default_context()
-            with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
-                s.settimeout(8)
-                s.connect((domain, 443))
-                cert = s.getpeercert()
-                if cert:
-                    not_after = cert.get("notAfter", "")
-                    expires_dt = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
-                    ssl_days = (expires_dt - datetime.utcnow()).days
-        except Exception:
-            ssl_days = None
-
-        return {
-            "up": is_up,
-            "status_code": status_code,
-            "response_ms": response_ms,
-            "ssl_days": ssl_days,
-            "last_check": datetime.now().strftime("%H:%M:%S"),
-        }
 
 # ---------------------------------------------------------------------------
 # License Dialog (inline, for first-run or re-activation)
@@ -265,7 +206,7 @@ class AddSitesDialog(QDialog):
         return result
 
 # ---------------------------------------------------------------------------
-# Main Window
+# Style
 # ---------------------------------------------------------------------------
 DARK_BG     = "#0f0f23"
 DARK_PANEL  = "#1a1a2e"
@@ -359,19 +300,24 @@ QTabBar::tab:selected {{
 """
 
 
+# ---------------------------------------------------------------------------
+# Main Window
+# ---------------------------------------------------------------------------
 class MainWindow(QMainWindow):
-    """Главное окно SiteGuard Monitor Pro."""
+    """Главное окно SiteGuard Monitor Pro v2.0.0."""
 
     def __init__(self, setup_data: dict | None = None):
         super().__init__()
         self.setup_data = setup_data or {}
         self._lm = LicenseManager()
+        self._notifier = EmailNotifier()
         self._site_status: Dict[str, dict] = {}
-        self._monitor_thread: Optional[MonitorThread] = None
+        self._history: dict = _load_history()
+        self._monitor_thread: Optional[MonitorEngine] = None
         self._icon = _make_icon()
         self._tray: Optional[QSystemTrayIcon] = None
 
-        self.setWindowTitle("SiteGuard Monitor Pro v1.2.0")
+        self.setWindowTitle("SiteGuard Monitor Pro v2.0.0")
         self.setWindowIcon(self._icon)
         self.setMinimumSize(900, 620)
         self.resize(1200, 780)
@@ -386,10 +332,12 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._setup_tray()
 
-        # Auto-refresh every 60 sec
+        # Auto-refresh timer — interval from settings
+        settings = self._notifier.get_settings()
+        interval_ms = settings.get("monitor_interval", 60) * 1000
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._run_monitor)
-        self._timer.start(60_000)
+        self._timer.start(interval_ms)
 
         # Initial data load after window is shown
         QTimer.singleShot(500, self._initial_load)
@@ -429,6 +377,16 @@ class MainWindow(QMainWindow):
         act_remove.triggered.connect(self._remove_site_dialog)
         monitor_menu.addAction(act_remove)
 
+        settings_menu = mb.addMenu("Настройки")
+        act_settings = QAction("Параметры…", self)
+        act_settings.triggered.connect(self._open_settings)
+        settings_menu.addAction(act_settings)
+
+        help_menu = mb.addMenu("Помощь")
+        act_about = QAction("О программе", self)
+        act_about.triggered.connect(self._show_about)
+        help_menu.addAction(act_about)
+
         # Toolbar
         tb = self.addToolBar("Главная")
         tb.setMovable(False)
@@ -446,9 +404,9 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
-        btn_license = QPushButton("  🔑 Лицензия")
-        btn_license.clicked.connect(self._activate_license)
-        tb.addWidget(btn_license)
+        btn_settings = QPushButton("  ⚙ Настройки")
+        btn_settings.clicked.connect(self._open_settings)
+        tb.addWidget(btn_settings)
 
         # Spacer
         spacer = QWidget()
@@ -470,9 +428,24 @@ class MainWindow(QMainWindow):
         self._stats_bar = self._build_stats_bar()
         vbox.addWidget(self._stats_bar)
 
-        # Sites table
-        self._table = self._build_table()
-        vbox.addWidget(self._table, stretch=1)
+        # Tab widget: Мониторинг | Угрозы | История
+        self._tabs = QTabWidget()
+        vbox.addWidget(self._tabs, stretch=1)
+
+        # Monitoring tab — sites table
+        self._table = self._build_sites_table()
+        self._table.doubleClicked.connect(self._on_table_double_click)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self._tabs.addTab(self._table, "Мониторинг")
+
+        # Threats tab
+        self._threats_table = self._build_threats_table()
+        self._tabs.addTab(self._threats_table, "Угрозы")
+
+        # History tab
+        self._history_table = self._build_history_table()
+        self._tabs.addTab(self._history_table, "История")
 
         # Bottom status
         self._last_check_label = QLabel("Последняя проверка: —")
@@ -489,14 +462,16 @@ class MainWindow(QMainWindow):
         h.setSpacing(12)
         h.setContentsMargins(0, 0, 0, 0)
 
-        self._stat_total  = self._stat_box("Сайтов", "0", "#1565C0")
-        self._stat_online = self._stat_box("Онлайн", "0", GREEN)
-        self._stat_offline= self._stat_box("Офлайн", "0", RED)
-        self._stat_avg    = self._stat_box("Ср. время", "—", "#9C27B0")
+        self._stat_total   = self._stat_box("Всего",    "0", "#1565C0")
+        self._stat_online  = self._stat_box("Онлайн",   "0", GREEN)
+        self._stat_offline = self._stat_box("Офлайн",   "0", RED)
+        self._stat_threats = self._stat_box("Угрозы",   "0", YELLOW)
+        self._stat_avg     = self._stat_box("Ср.время", "—", "#9C27B0")
 
         h.addWidget(self._stat_total)
         h.addWidget(self._stat_online)
         h.addWidget(self._stat_offline)
+        h.addWidget(self._stat_threats)
         h.addWidget(self._stat_avg)
         h.addStretch()
         return w
@@ -510,11 +485,13 @@ class MainWindow(QMainWindow):
         lbl.setTextFormat(Qt.TextFormat.RichText)
         return lbl
 
-    def _build_table(self) -> QTableWidget:
-        t = QTableWidget(0, 6)
-        t.setHorizontalHeaderLabels(["Домен", "Статус", "Код", "Время (мс)", "SSL (дней)", "Проверка"])
+    def _build_sites_table(self) -> QTableWidget:
+        t = QTableWidget(0, 7)
+        t.setHorizontalHeaderLabels([
+            "Домен", "Статус", "Код", "Время (мс)", "SSL (дней)", "Угрозы", "Последняя проверка"
+        ])
         t.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for i in range(1, 6):
+        for i in range(1, 7):
             t.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -522,6 +499,101 @@ class MainWindow(QMainWindow):
         t.setStyleSheet(t.styleSheet() + "QTableWidget{alternate-background-color:#151528;}")
         t.verticalHeader().setVisible(False)
         return t
+
+    def _build_threats_table(self) -> QTableWidget:
+        t = QTableWidget(0, 5)
+        t.setHorizontalHeaderLabels([
+            "Домен", "Тип угрозы", "Описание", "Время обнаружения", "Статус"
+        ])
+        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        t.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        t.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        t.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        t.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        t.setAlternatingRowColors(True)
+        t.setStyleSheet(t.styleSheet() + "QTableWidget{alternate-background-color:#151528;}")
+        t.verticalHeader().setVisible(False)
+        return t
+
+    def _build_history_table(self) -> QTableWidget:
+        t = QTableWidget(0, 5)
+        t.setHorizontalHeaderLabels(["Домен", "Дата", "Время ответа", "Код", "Статус"])
+        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for i in range(1, 5):
+            t.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        t.setAlternatingRowColors(True)
+        t.setStyleSheet(t.styleSheet() + "QTableWidget{alternate-background-color:#151528;}")
+        t.verticalHeader().setVisible(False)
+        return t
+
+    # ------------------------------------------------------------------
+    # Context menu & double-click
+    # ------------------------------------------------------------------
+    def _on_table_double_click(self, index):
+        row = index.row()
+        domains = _load_sites()
+        if 0 <= row < len(domains):
+            self._open_site_detail(domains[row])
+
+    def _on_table_context_menu(self, pos):
+        row = self._table.rowAt(pos.y())
+        domains = _load_sites()
+        if row < 0 or row >= len(domains):
+            return
+        domain = domains[row]
+
+        menu = QMenu(self)
+        menu.setStyleSheet(f"background:{DARK_PANEL}; color:{TEXT_MAIN}; border:1px solid {DARK_BORDER};")
+
+        act_check = menu.addAction("Проверить сейчас")
+        act_detail = menu.addAction("Подробности")
+        menu.addSeparator()
+        act_delete = menu.addAction("Удалить")
+
+        action = menu.exec(self._table.viewport().mapToGlobal(pos))
+        if action == act_check:
+            self._check_single_site(domain)
+        elif action == act_detail:
+            self._open_site_detail(domain)
+        elif action == act_delete:
+            self._delete_site(domain)
+
+    def _open_site_detail(self, domain: str):
+        from ui.site_detail_dialog import SiteDetailDialog
+        status = self._site_status.get(domain, {})
+        history = self._history.get(domain, [])
+        dlg = SiteDetailDialog(domain, status, history, parent=self)
+        dlg.check_requested.connect(self._check_single_site)
+        dlg.delete_requested.connect(self._delete_site)
+        dlg.exec()
+
+    def _check_single_site(self, domain: str):
+        settings = self._notifier.get_settings()
+        thread = MonitorEngine(
+            [domain],
+            timeout=settings.get("monitor_timeout", 15),
+            threat_scan=settings.get("threat_scan_enabled", True),
+            scan_every_n=1,  # force scan on manual check
+            parent=self,
+        )
+        thread.results_ready.connect(self._on_results)
+        thread.start()
+        self.statusBar().showMessage(f"Проверяем {domain}…")
+
+    def _delete_site(self, domain: str):
+        sites = _load_sites()
+        if domain in sites:
+            sites.remove(domain)
+            _save_sites(sites)
+            self._site_status.pop(domain, None)
+            self._refresh_table()
+            self._refresh_threats_tab()
+            self._refresh_history_tab()
+            self.statusBar().showMessage(f"Удалён: {domain}")
 
     # ------------------------------------------------------------------
     # Tray
@@ -533,7 +605,7 @@ class MainWindow(QMainWindow):
         self._tray.setToolTip("SiteGuard Monitor Pro")
 
         menu = QMenu()
-        menu.setStyleSheet("background:#1a1a2e; color:#e0e0e0; border:1px solid #333;")
+        menu.setStyleSheet(f"background:{DARK_PANEL}; color:{TEXT_MAIN}; border:1px solid {DARK_BORDER};")
         act_show = menu.addAction("Показать окно")
         act_show.triggered.connect(self._bring_to_front)
         menu.addSeparator()
@@ -572,7 +644,6 @@ class MainWindow(QMainWindow):
     # Close / Quit
     # ------------------------------------------------------------------
     def closeEvent(self, event):
-        """X button — спрашиваем: свернуть или выйти."""
         if self._tray and self._tray.isVisible():
             reply = QMessageBox.question(
                 self,
@@ -620,6 +691,8 @@ class MainWindow(QMainWindow):
     def _initial_load(self):
         self._update_license_bar()
         self._refresh_table()
+        self._refresh_threats_tab()
+        self._refresh_history_tab()
         domains = _load_sites()
         if domains:
             self.statusBar().showMessage(f"Запускаем проверку {len(domains)} сайтов…")
@@ -628,33 +701,76 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Добавьте сайты для мониторинга через меню «Файл → Добавить сайты»")
 
     def _run_monitor(self):
-        """Start background check. Only one thread at a time."""
         domains = _load_sites()
         if not domains:
             return
         if self._monitor_thread and self._monitor_thread.isRunning():
             return
-        self._monitor_thread = MonitorThread(domains, parent=self)
+        settings = self._notifier.get_settings()
+        self._monitor_thread = MonitorEngine(
+            domains,
+            timeout=settings.get("monitor_timeout", 15),
+            threat_scan=settings.get("threat_scan_enabled", True),
+            scan_every_n=settings.get("threat_scan_every_n", 10),
+            parent=self,
+        )
         self._monitor_thread.results_ready.connect(self._on_results)
         self._monitor_thread.start()
         self.statusBar().showMessage(f"Проверяем {len(domains)} сайтов…")
 
     def _run_monitor_forced(self):
-        """Force check even if thread running."""
         if self._monitor_thread and self._monitor_thread.isRunning():
             self._monitor_thread.stop_gracefully()
             self._monitor_thread.wait(1000)
         self._run_monitor()
 
     def _on_results(self, results: dict):
+        old_status = dict(self._site_status)
         self._site_status.update(results)
+        self._save_history(results)
         self._refresh_table()
+        self._refresh_threats_tab()
+        self._refresh_history_tab()
+
+        # Send notifications
+        try:
+            self._notifier.check_and_notify(old_status, results)
+        except Exception:
+            pass
+
         now = datetime.now().strftime("%H:%M:%S")
         self._last_check_label.setText(f"Последняя проверка: {now}")
         up = sum(1 for v in results.values() if v.get("up"))
-        total = len(results)
-        self.statusBar().showMessage(f"Проверено: {total} сайтов. Онлайн: {up}, Офлайн: {total - up}")
+        threats = sum(len(v.get("threats", [])) for v in self._site_status.values())
+        self.statusBar().showMessage(
+            f"Проверено {len(results)} сайтов: {up} онлайн, {len(results)-up} офлайн, {threats} угроз"
+        )
 
+    # ------------------------------------------------------------------
+    # History persistence
+    # ------------------------------------------------------------------
+    def _save_history(self, results: dict):
+        now = datetime.now().isoformat()
+        for domain, info in results.items():
+            if domain not in self._history:
+                self._history[domain] = []
+            self._history[domain].append({
+                "time": now,
+                "up": info["up"],
+                "status_code": info["status_code"],
+                "response_ms": info["response_ms"],
+            })
+            self._history[domain] = self._history[domain][-100:]
+        try:
+            _history_file().write_text(
+                json.dumps(self._history, ensure_ascii=False), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Refresh tables
+    # ------------------------------------------------------------------
     def _refresh_table(self):
         domains = _load_sites()
         self._table.setRowCount(len(domains))
@@ -665,17 +781,23 @@ class MainWindow(QMainWindow):
             ms = info.get("response_ms", 0)
             ssl_d = info.get("ssl_days")
             last = info.get("last_check", "—")
+            threats = info.get("threats", [])
+            error = info.get("error")
 
             if up is None:
                 status_text, status_color = "⏳ Ожидание", TEXT_DIM
             elif up:
                 status_text, status_color = "✓ Онлайн", GREEN
+            elif code >= 500:
+                status_text, status_color = "⚠ Ошибка", YELLOW
             else:
                 status_text, status_color = "✗ Офлайн", RED
 
-            ms_text = f"{ms} мс" if ms else "—"
-            ssl_text = f"{ssl_d}д" if ssl_d is not None else "—"
+            ms_text = f"{ms}" if ms else "—"
+            ssl_text = f"{ssl_d}" if ssl_d is not None else "—"
             code_text = str(code) if code else "—"
+            threats_text = str(len(threats)) if threats else "0"
+            threats_color = YELLOW if threats else TEXT_DIM
 
             items = [
                 (domain, TEXT_MAIN),
@@ -683,6 +805,7 @@ class MainWindow(QMainWindow):
                 (code_text, TEXT_DIM),
                 (ms_text, TEXT_DIM),
                 (ssl_text, YELLOW if ssl_d is not None and ssl_d < 30 else TEXT_DIM),
+                (threats_text, threats_color),
                 (last, TEXT_DIM),
             ]
             for col, (text, color) in enumerate(items):
@@ -695,17 +818,83 @@ class MainWindow(QMainWindow):
         total = len(domains)
         up_count = sum(1 for d in domains if self._site_status.get(d, {}).get("up") is True)
         off_count = sum(1 for d in domains if self._site_status.get(d, {}).get("up") is False)
-        times = [self._site_status[d]["response_ms"] for d in domains if d in self._site_status and self._site_status[d].get("response_ms")]
+        threat_count = sum(len(self._site_status.get(d, {}).get("threats", [])) for d in domains)
+        times = [self._site_status[d]["response_ms"]
+                 for d in domains
+                 if d in self._site_status and self._site_status[d].get("response_ms")]
         avg = f"{int(sum(times)/len(times))} мс" if times else "—"
 
         def _set_stat(lbl: QLabel, val: str, title: str, color: str):
             lbl.setText(f"<b style='font-size:22px;color:{color}'>{val}</b><br>"
                         f"<span style='color:{TEXT_DIM};font-size:11px'>{title}</span>")
 
-        _set_stat(self._stat_total,   str(total),    "Сайтов",   "#1565C0")
-        _set_stat(self._stat_online,  str(up_count),  "Онлайн",   GREEN)
-        _set_stat(self._stat_offline, str(off_count), "Офлайн",   RED)
-        _set_stat(self._stat_avg,     avg,            "Ср. время", "#9C27B0")
+        _set_stat(self._stat_total,   str(total),        "Всего",    "#1565C0")
+        _set_stat(self._stat_online,  str(up_count),     "Онлайн",   GREEN)
+        _set_stat(self._stat_offline, str(off_count),    "Офлайн",   RED)
+        _set_stat(self._stat_threats, str(threat_count), "Угрозы",   YELLOW)
+        _set_stat(self._stat_avg,     avg,               "Ср.время", "#9C27B0")
+
+    def _refresh_threats_tab(self):
+        all_threats = []
+        for domain, info in self._site_status.items():
+            for t in info.get("threats", []):
+                all_threats.append((domain, t))
+
+        if not all_threats:
+            self._threats_table.setRowCount(1)
+            item = QTableWidgetItem("Угроз не обнаружено")
+            item.setForeground(QBrush(QColor(GREEN)))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._threats_table.setItem(0, 0, item)
+            for col in range(1, 5):
+                empty = QTableWidgetItem("")
+                empty.setFlags(empty.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._threats_table.setItem(0, col, empty)
+            return
+
+        self._threats_table.setRowCount(len(all_threats))
+        for row, (domain, t) in enumerate(all_threats):
+            items = [
+                (domain, TEXT_MAIN),
+                (t.get("type", ""), YELLOW),
+                (t.get("desc", ""), TEXT_MAIN),
+                (t.get("time", ""), TEXT_DIM),
+                ("Обнаружена", RED),
+            ]
+            for col, (text, color) in enumerate(items):
+                item = QTableWidgetItem(text)
+                item.setForeground(QBrush(QColor(color)))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._threats_table.setItem(row, col, item)
+
+    def _refresh_history_tab(self):
+        # Flatten history — show most recent entries across all domains
+        entries = []
+        for domain, checks in self._history.items():
+            for check in checks[-20:]:  # last 20 per domain for display
+                entries.append((domain, check))
+        # Sort by time descending
+        entries.sort(key=lambda x: x[1].get("time", ""), reverse=True)
+        entries = entries[:200]  # limit total display
+
+        self._history_table.setRowCount(len(entries))
+        for row, (domain, check) in enumerate(entries):
+            up = check.get("up")
+            status_text = "✓ Онлайн" if up else "✗ Офлайн"
+            status_color = GREEN if up else RED
+
+            items = [
+                (domain, TEXT_MAIN),
+                (check.get("time", "—"), TEXT_DIM),
+                (f"{check.get('response_ms', 0)} мс", TEXT_DIM),
+                (str(check.get("status_code", 0)), TEXT_DIM),
+                (status_text, status_color),
+            ]
+            for col, (text, color) in enumerate(items):
+                item = QTableWidgetItem(text)
+                item.setForeground(QBrush(QColor(color)))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._history_table.setItem(row, col, item)
 
     # ------------------------------------------------------------------
     # License
@@ -746,6 +935,28 @@ class MainWindow(QMainWindow):
         )
 
     # ------------------------------------------------------------------
+    # Settings
+    # ------------------------------------------------------------------
+    def _open_settings(self):
+        from ui.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self._notifier, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # Reload timer interval from settings
+            settings = self._notifier.get_settings()
+            interval_ms = settings.get("monitor_interval", 60) * 1000
+            self._timer.setInterval(interval_ms)
+            self.statusBar().showMessage("Настройки сохранены")
+
+    def _show_about(self):
+        QMessageBox.about(
+            self, "О программе",
+            "SiteGuard Monitor Pro v2.0.0\n\n"
+            "Мониторинг сайтов с обнаружением угроз,\n"
+            "email-уведомлениями и историей проверок.\n\n"
+            "© SiteGuard 2024"
+        )
+
+    # ------------------------------------------------------------------
     # Site management
     # ------------------------------------------------------------------
     def _add_sites_dialog(self):
@@ -759,7 +970,6 @@ class MainWindow(QMainWindow):
                 _save_sites(sites)
                 self._refresh_table()
                 self.statusBar().showMessage(f"Добавлено {len(new_domains)} сайтов")
-                # Check new sites
                 QTimer.singleShot(300, self._run_monitor)
             else:
                 self.statusBar().showMessage("Нет новых сайтов для добавления")
@@ -773,8 +983,4 @@ class MainWindow(QMainWindow):
             self, "Удалить сайт", "Выберите сайт:", sites, editable=False
         )
         if ok and domain:
-            sites.remove(domain)
-            _save_sites(sites)
-            self._site_status.pop(domain, None)
-            self._refresh_table()
-            self.statusBar().showMessage(f"Удалён: {domain}")
+            self._delete_site(domain)
