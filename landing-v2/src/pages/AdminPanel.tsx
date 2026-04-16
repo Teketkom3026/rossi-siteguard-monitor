@@ -128,19 +128,26 @@ const demoLicenses: License[] = [
   },
 ]
 
+// --------------- AUTH CONSTANTS ---------------
+const ADMIN_LOGIN = 'admin'
+const ADMIN_PASSWORD = 'SiteGuard2024Admin!'
+
 // --------------- LOGIN SCREEN ---------------
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  const [email, setEmail] = useState('')
+  const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (email && password) {
+    if (login === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
+      setError('')
       onLogin()
+    } else if (!login || !password) {
+      setError('Введите логин и пароль')
     } else {
-      setError('Введите email и пароль')
+      setError('Неверный логин или пароль')
     }
   }
 
@@ -165,14 +172,15 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="text-xs text-sg-muted font-mono mb-1.5 block">Email</label>
+            <label className="text-xs text-sg-muted font-mono mb-1.5 block">Логин</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@rossi-siteguard.ru"
+              type="text"
+              value={login}
+              onChange={(e) => setLogin(e.target.value)}
+              placeholder="admin"
+              autoComplete="username"
               className="w-full bg-sg-surface border border-sg-border rounded-xl px-4 py-3 text-sm text-sg-text placeholder:text-sg-muted/50 focus:outline-none focus:border-sg-blue/40 transition-colors font-body"
-              data-testid="input-email"
+              data-testid="input-login"
             />
           </div>
           <div>
@@ -208,7 +216,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         </form>
 
         <p className="text-xs text-sg-muted text-center mt-6">
-          Demo UI — вход с любыми данными
+          Доступ только для администратора
         </p>
       </motion.div>
     </div>
