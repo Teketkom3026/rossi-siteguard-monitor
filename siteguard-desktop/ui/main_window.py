@@ -1,11 +1,6 @@
 """
-SiteGuard Monitor Pro - Main Application Window  (v1.1.3 — Offline-First)
-
-QMainWindow with menu bar, toolbar, tab widget (Dashboard + Site Details),
-status bar, system tray icon.  Background QThread monitors sites every 60 s
-using only stdlib urllib / ssl — no external HTTP libraries.
-Local sites.json for site list, local license.json for licensing.
-Dark theme (#0f0f23).
+SiteGuard Monitor Pro — Main Window v1.2.0
+Офлайн-мониторинг сайтов. Простой и надёжный.
 """
 from __future__ import annotations
 
@@ -19,99 +14,108 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QTabWidget,
-    QLabel,
-    QToolBar,
-    QMenu,
-    QSystemTrayIcon,
-    QPushButton,
-    QMessageBox,
-    QFrame,
-    QGridLayout,
-    QApplication,
-    QFileDialog,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
-    QInputDialog,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem,
+    QHeaderView, QInputDialog, QMessageBox, QApplication,
+    QDialog, QDialogButtonBox, QLineEdit, QFormLayout,
+    QGroupBox, QTextEdit, QTabWidget, QFrame, QSizePolicy,
+    QSystemTrayIcon, QMenu,
 )
-from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal, QThread, QObject
-from PyQt6.QtGui import QAction, QColor, QFont, QPixmap, QPainter, QIcon
+from PyQt6.QtCore import (
+    Qt, QTimer, QThread, QObject, pyqtSignal, QSize,
+)
+from PyQt6.QtGui import (
+    QAction, QColor, QFont, QPixmap, QPainter, QIcon, QBrush,
+)
 from PyQt6.QtNetwork import QLocalServer
 
 from core.license_manager import LicenseManager
-
-SERVER_NAME = "RossiSiteGuardMonitor_v2"
-
-
-def _make_app_icon() -> QIcon:
-    """Create a simple programmatic icon (blue square with 'SG' text)."""
-    pix = QPixmap(64, 64)
-    pix.fill(QColor(0, 120, 212))
-    painter = QPainter(pix)
-    painter.setPen(QColor(255, 255, 255))
-    font = QFont("Segoe UI", 22, QFont.Weight.Bold)
-    painter.setFont(font)
-    painter.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "SG")
-    painter.end()
-    return QIcon(pix)
+from core.license_validator import validate_key
 
 logger = logging.getLogger("SiteGuard.MainWindow")
 
+SERVER_NAME = "RossiSiteGuardMonitor_v2"
 
 # ---------------------------------------------------------------------------
-# Background monitoring worker
+# AppData paths
 # ---------------------------------------------------------------------------
-class MonitorWorker(QObject):
-    """Runs site checks in a background QThread."""
+def _app_data_dir() -> Path:
+    base = Path(os.getenv("APPDATA", str(Path.home())))
+    d = base / "SiteGuard Monitor"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
-    results_ready = pyqtSignal(dict)  # {domain: {...status info...}}
-    finished = pyqtSignal()
+def _sites_file() -> Path:
+    return _app_data_dir() / "sites.json"
 
-    def __init__(self, domains: List[str]):
-        super().__init__()
+def _load_sites() -> List[str]:
+    f = _sites_file()
+    if not f.exists():
+        return []
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def _save_sites(domains: List[str]):
+    _sites_file().write_text(json.dumps(domains, ensure_ascii=False, indent=2), encoding="utf-8")
+
+# ---------------------------------------------------------------------------
+# App icon
+# ---------------------------------------------------------------------------
+def _make_icon() -> QIcon:
+    pix = QPixmap(64, 64)
+    pix.fill(QColor("#1565C0"))
+    p = QPainter(pix)
+    p.setPen(QColor("#FFFFFF"))
+    f = QFont("Segoe UI", 20, QFont.Weight.Bold)
+    p.setFont(f)
+    p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "SG")
+    p.end()
+    return QIcon(pix)
+
+# ---------------------------------------------------------------------------
+# Background monitor thread (QThread subclass — simpler, no deleteLater race)
+# ---------------------------------------------------------------------------
+class MonitorThread(QThread):
+    results_ready = pyqtSignal(dict)
+
+    def __init__(self, domains: List[str], parent=None):
+        super().__init__(parent)
         self._domains = list(domains)
-        self._running = True
+        self._stop = False
 
-    def stop(self):
-        self._running = False
+    def stop_gracefully(self):
+        self._stop = True
 
     def run(self):
         results: Dict[str, dict] = {}
         for domain in self._domains:
-            if not self._running:
+            if self._stop:
                 break
-            results[domain] = self._check_single(domain)
+            results[domain] = self._check(domain)
         self.results_ready.emit(results)
-        self.finished.emit()
 
-    # -- per-site check --
-    def _check_single(self, domain: str) -> dict:
+    def _check(self, domain: str) -> dict:
         status_code = 0
         response_ms = 0.0
         is_up = False
         ssl_days = None
 
-        # HTTP(S) reachability
         for scheme in ("https", "http"):
             url = f"{scheme}://{domain}"
             try:
                 t0 = time.time()
                 req = urllib.request.Request(url, method="HEAD")
-                req.add_header("User-Agent", "SiteGuard-Monitor/1.1.3")
+                req.add_header("User-Agent", "SiteGuard-Monitor/1.2.0")
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     status_code = resp.status
                     response_ms = round((time.time() - t0) * 1000)
                     is_up = status_code < 400
-                break  # success — no need to try fallback
+                break
             except urllib.error.HTTPError as exc:
                 status_code = exc.code
                 response_ms = round((time.time() - t0) * 1000)
@@ -120,11 +124,10 @@ class MonitorWorker(QObject):
             except Exception:
                 continue
 
-        # SSL certificate expiry check
         try:
             ctx = ssl.create_default_context()
             with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
-                s.settimeout(10)
+                s.settimeout(8)
                 s.connect((domain, 443))
                 cert = s.getpeercert()
                 if cert:
@@ -142,837 +145,636 @@ class MonitorWorker(QObject):
             "last_check": datetime.now().strftime("%H:%M:%S"),
         }
 
-
 # ---------------------------------------------------------------------------
-# Dashboard Widget
+# License Dialog (inline, for first-run or re-activation)
 # ---------------------------------------------------------------------------
-class DashboardWidget(QWidget):
-    """Dashboard tab showing overview of all monitored sites."""
-
-    site_selected = pyqtSignal(str)
-
+class LicenseDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._build_ui()
+        self.setWindowTitle("Активация лицензии")
+        self.setMinimumWidth(480)
+        self.setStyleSheet("background:#1a1a2e; color:#e0e0e0; font-size:13px;")
 
-    def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
 
-        # -- Summary cards --
-        cards_layout = QHBoxLayout()
-        self.card_total = self._make_card("Total Sites", "0", "#4a90d9")
-        self.card_up = self._make_card("Online", "0", "#00e676")
-        self.card_down = self._make_card("Offline", "0", "#ff6b6b")
-        self.card_avg = self._make_card("Avg Response", "—", "#ff9100")
-        cards_layout.addWidget(self.card_total)
-        cards_layout.addWidget(self.card_up)
-        cards_layout.addWidget(self.card_down)
-        cards_layout.addWidget(self.card_avg)
-        layout.addLayout(cards_layout)
-
-        # -- Sites table --
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(
-            ["Domain", "Status", "Response Time", "SSL Days", "Last Check"]
+        info = QLabel(
+            "Введите лицензионный ключ в формате:\n"
+            "SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
         )
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet(
-            """
-            QTableWidget {
-                background-color: #16213e;
-                alternate-background-color: #1a2745;
-                border: 1px solid #2a2a5e;
-                border-radius: 8px;
-                gridline-color: #2a2a5e;
-                color: #e0e0e0;
-                font-size: 13px;
-            }
-            QTableWidget::item:selected {
-                background-color: #4a90d9;
-            }
-            QHeaderView::section {
-                background-color: #0a0a1a;
-                color: #a0a0b0;
-                padding: 8px;
-                border: none;
-                border-bottom: 2px solid #4a90d9;
-                font-weight: bold;
-            }
-            """
+        info.setStyleSheet("color:#aaa; padding:8px;")
+        layout.addWidget(info)
+
+        form = QFormLayout()
+        self._key_edit = QLineEdit()
+        self._key_edit.setPlaceholderText("SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX")
+        self._key_edit.setStyleSheet(
+            "background:#0f0f23; color:#e0e0e0; border:1px solid #333; "
+            "padding:8px; font-size:14px; border-radius:4px;"
         )
-        self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
-        layout.addWidget(self.table)
+        form.addRow("Ключ:", self._key_edit)
+        layout.addLayout(form)
 
-    @staticmethod
-    def _make_card(title: str, value: str, color: str) -> QFrame:
-        card = QFrame()
-        card.setFixedHeight(100)
-        card.setStyleSheet(
-            f"""
-            QFrame {{
-                background-color: #16213e;
-                border: 1px solid #2a2a5e;
-                border-radius: 10px;
-                border-left: 4px solid {color};
-            }}
-            """
+        self._status = QLabel("")
+        self._status.setStyleSheet("padding:6px;")
+        layout.addWidget(self._status)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        card_layout = QVBoxLayout(card)
-        lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("color: #a0a0b0; font-size: 12px;")
-        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_value = QLabel(value)
-        lbl_value.setObjectName("card_value")
-        lbl_value.setStyleSheet(f"color: {color}; font-size: 28px; font-weight: bold;")
-        lbl_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(lbl_title)
-        card_layout.addWidget(lbl_value)
-        return card
+        btns.setStyleSheet("QPushButton{background:#1565C0;color:#fff;padding:6px 18px;border-radius:4px;}"
+                           "QPushButton:hover{background:#1976D2;}")
+        btns.accepted.connect(self._validate)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
 
-    def _on_row_double_clicked(self, row: int, _col: int):
-        domain_item = self.table.item(row, 0)
-        if domain_item:
-            self.site_selected.emit(domain_item.text())
-
-    def update_from_status(self, domains: List[str], site_status: Dict[str, dict]):
-        """Refresh the dashboard table and cards from local monitoring data."""
-        total = len(domains)
-        up = sum(1 for d in domains if site_status.get(d, {}).get("up", False))
-        down = total - up
-        resp_times = [
-            site_status[d]["response_ms"]
-            for d in domains
-            if d in site_status and site_status[d].get("up")
-        ]
-        avg_resp = f"{round(sum(resp_times) / len(resp_times))} ms" if resp_times else "\u2014"
-
-        self.card_total.findChild(QLabel, "card_value").setText(str(total))
-        self.card_up.findChild(QLabel, "card_value").setText(str(up))
-        self.card_down.findChild(QLabel, "card_value").setText(str(down))
-        self.card_avg.findChild(QLabel, "card_value").setText(avg_resp)
-
-        self.table.setRowCount(total)
-        for i, domain in enumerate(domains):
-            info = site_status.get(domain, {})
-            is_up = info.get("up", False)
-
-            # Domain
-            self.table.setItem(i, 0, QTableWidgetItem(domain))
-
-            # Status
-            status_item = QTableWidgetItem("\u2713 Online" if is_up else "\u2717 Offline")
-            status_item.setForeground(QColor("#00e676") if is_up else QColor("#ff6b6b"))
-            self.table.setItem(i, 1, status_item)
-
-            # Response time
-            resp = f"{info['response_ms']} ms" if info.get("response_ms") else "\u2014"
-            self.table.setItem(i, 2, QTableWidgetItem(resp))
-
-            # SSL days
-            ssl_d = info.get("ssl_days")
-            if ssl_d is not None:
-                ssl_text = "Expired" if ssl_d < 0 else f"{ssl_d}d"
-            else:
-                ssl_text = "\u2014"
-            self.table.setItem(i, 3, QTableWidgetItem(ssl_text))
-
-            # Last check
-            self.table.setItem(i, 4, QTableWidgetItem(info.get("last_check", "\u2014")))
-
-
-# ---------------------------------------------------------------------------
-# Site Detail Widget
-# ---------------------------------------------------------------------------
-class SiteDetailWidget(QWidget):
-    """Detail tab for a selected site."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._build_ui()
-
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        self.header_label = QLabel("Select a site from the Dashboard to view details")
-        self.header_label.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
-        self.header_label.setStyleSheet("color: #4a90d9;")
-        self.header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.header_label)
-
-        self.info_frame = QFrame()
-        self.info_frame.setStyleSheet(
-            """
-            QFrame {
-                background-color: #16213e;
-                border: 1px solid #2a2a5e;
-                border-radius: 10px;
-            }
-            """
-        )
-        info_layout = QGridLayout(self.info_frame)
-        info_layout.setSpacing(12)
-
-        labels = [
-            ("Status:", "status_val"),
-            ("Domain:", "domain_val"),
-            ("Response Time:", "response_val"),
-            ("SSL Certificate:", "ssl_val"),
-            ("SSL Days Left:", "ssl_days_val"),
-            ("Last Check:", "last_check_val"),
-        ]
-        self._info_labels = {}
-        for row, (title, name) in enumerate(labels):
-            title_lbl = QLabel(title)
-            title_lbl.setStyleSheet("color: #a0a0b0; font-size: 13px; padding: 4px;")
-            value_lbl = QLabel("-")
-            value_lbl.setStyleSheet("color: #e0e0e0; font-size: 13px; font-weight: bold; padding: 4px;")
-            info_layout.addWidget(title_lbl, row, 0)
-            info_layout.addWidget(value_lbl, row, 1)
-            self._info_labels[name] = value_lbl
-
-        layout.addWidget(self.info_frame)
-        layout.addStretch()
-
-    def update_from_status(self, domain: str, info: dict):
-        """Populate detail view from local monitoring result."""
-        self.header_label.setText(f"Site Details: {domain}")
-        is_up = info.get("up", False)
-        status_text = "Online" if is_up else "OFFLINE"
-        status_color = "#00e676" if is_up else "#ff6b6b"
-
-        self._info_labels["status_val"].setText(status_text)
-        self._info_labels["status_val"].setStyleSheet(
-            f"color: {status_color}; font-size: 13px; font-weight: bold; padding: 4px;"
-        )
-        self._info_labels["domain_val"].setText(domain)
-        resp = f'{info.get("response_ms", "-")} ms'
-        self._info_labels["response_val"].setText(resp)
-
-        ssl_d = info.get("ssl_days")
-        if ssl_d is not None:
-            self._info_labels["ssl_val"].setText("Valid" if ssl_d >= 0 else "Expired")
-            self._info_labels["ssl_days_val"].setText(f"{ssl_d} days")
+    def _validate(self):
+        key = self._key_edit.text().strip().upper()
+        if not key:
+            self._status.setStyleSheet("color:#f44;")
+            self._status.setText("Введите ключ.")
+            return
+        try:
+            valid, plan, info = validate_key(key)
+        except Exception as e:
+            valid, plan, info = False, None, str(e)
+        if valid:
+            self._activated_key = key
+            self._activated_plan = plan
+            self._status.setStyleSheet("color:#4CAF50;")
+            self._status.setText(f"✓ Ключ принят. План: {plan}")
+            QTimer.singleShot(800, self.accept)
         else:
-            self._info_labels["ssl_val"].setText("\u2014")
-            self._info_labels["ssl_days_val"].setText("\u2014")
+            self._status.setStyleSheet("color:#f44;")
+            self._status.setText(f"✗ Неверный ключ: {info}")
 
-        self._info_labels["last_check_val"].setText(info.get("last_check", "\u2014"))
+    def get_key(self) -> str:
+        return getattr(self, "_activated_key", "")
 
+    def get_plan(self) -> str:
+        return getattr(self, "_activated_plan", "")
+
+# ---------------------------------------------------------------------------
+# Add Sites Dialog (bulk import)
+# ---------------------------------------------------------------------------
+class AddSitesDialog(QDialog):
+    def __init__(self, existing: List[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Добавить сайты")
+        self.setMinimumSize(520, 380)
+        self.setStyleSheet("background:#1a1a2e; color:#e0e0e0; font-size:13px;")
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            "Введите домены — по одному на строке.\n"
+            "Протокол https:// указывать не нужно."
+        )
+        info.setStyleSheet("color:#aaa; padding:4px;")
+        layout.addWidget(info)
+
+        self._edit = QTextEdit()
+        self._edit.setPlaceholderText("example.com\nsite.ru\nrossi.ru")
+        self._edit.setStyleSheet(
+            "background:#0f0f23; color:#e0e0e0; border:1px solid #333; "
+            "font-size:13px; border-radius:4px; padding:6px;"
+        )
+        layout.addWidget(self._edit)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.setStyleSheet("QPushButton{background:#1565C0;color:#fff;padding:6px 18px;border-radius:4px;}"
+                           "QPushButton:hover{background:#1976D2;}")
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self._existing = existing
+
+    def get_domains(self) -> List[str]:
+        lines = self._edit.toPlainText().strip().splitlines()
+        result = []
+        for line in lines:
+            d = line.strip().lower()
+            for pfx in ("https://", "http://", "www."):
+                if d.startswith(pfx):
+                    d = d[len(pfx):]
+            d = d.rstrip("/")
+            if d and d not in self._existing and d not in result:
+                result.append(d)
+        return result
 
 # ---------------------------------------------------------------------------
 # Main Window
 # ---------------------------------------------------------------------------
+DARK_BG     = "#0f0f23"
+DARK_PANEL  = "#1a1a2e"
+DARK_BORDER = "#2d2d4e"
+ACCENT      = "#1565C0"
+TEXT_MAIN   = "#e0e0e0"
+TEXT_DIM    = "#888888"
+GREEN       = "#4CAF50"
+RED         = "#f44336"
+YELLOW      = "#FFC107"
+
+STYLE = f"""
+QMainWindow, QWidget {{
+    background: {DARK_BG};
+    color: {TEXT_MAIN};
+    font-family: "Segoe UI", sans-serif;
+    font-size: 13px;
+}}
+QMenuBar {{
+    background: {DARK_PANEL};
+    color: {TEXT_MAIN};
+    border-bottom: 1px solid {DARK_BORDER};
+}}
+QMenuBar::item:selected {{ background: {ACCENT}; }}
+QMenu {{
+    background: {DARK_PANEL};
+    color: {TEXT_MAIN};
+    border: 1px solid {DARK_BORDER};
+}}
+QMenu::item:selected {{ background: {ACCENT}; }}
+QStatusBar {{
+    background: {DARK_PANEL};
+    color: {TEXT_DIM};
+    border-top: 1px solid {DARK_BORDER};
+}}
+QTableWidget {{
+    background: {DARK_PANEL};
+    color: {TEXT_MAIN};
+    border: 1px solid {DARK_BORDER};
+    gridline-color: {DARK_BORDER};
+    selection-background-color: {ACCENT};
+}}
+QHeaderView::section {{
+    background: {DARK_BG};
+    color: {TEXT_MAIN};
+    border: none;
+    border-bottom: 1px solid {DARK_BORDER};
+    padding: 6px;
+    font-weight: bold;
+}}
+QTableWidget::item {{ padding: 4px 8px; }}
+QPushButton {{
+    background: {ACCENT};
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 7px 18px;
+    font-size: 13px;
+}}
+QPushButton:hover {{ background: #1976D2; }}
+QPushButton:pressed {{ background: #0D47A1; }}
+QPushButton#danger {{ background: #c62828; }}
+QPushButton#danger:hover {{ background: #d32f2f; }}
+QLabel#stat_box {{
+    background: {DARK_PANEL};
+    border: 1px solid {DARK_BORDER};
+    border-radius: 6px;
+    padding: 10px 20px;
+}}
+QToolBar {{
+    background: {DARK_PANEL};
+    border-bottom: 1px solid {DARK_BORDER};
+    spacing: 6px;
+}}
+QTabWidget::pane {{
+    border: 1px solid {DARK_BORDER};
+    background: {DARK_BG};
+}}
+QTabBar::tab {{
+    background: {DARK_PANEL};
+    color: {TEXT_DIM};
+    padding: 8px 20px;
+    border: none;
+    border-right: 1px solid {DARK_BORDER};
+}}
+QTabBar::tab:selected {{
+    color: {TEXT_MAIN};
+    background: {DARK_BG};
+    border-bottom: 2px solid {ACCENT};
+}}
+"""
+
+
 class MainWindow(QMainWindow):
-    """Main application window — offline-first, dark theme."""
+    """Главное окно SiteGuard Monitor Pro."""
 
     def __init__(self, setup_data: dict | None = None):
         super().__init__()
         self.setup_data = setup_data or {}
-        self.license_manager = LicenseManager()
-
-        # Local monitoring state
+        self._lm = LicenseManager()
         self._site_status: Dict[str, dict] = {}
-        self._monitor_thread: QThread | None = None
-        self._monitor_worker: MonitorWorker | None = None
+        self._monitor_thread: Optional[MonitorThread] = None
+        self._icon = _make_icon()
+        self._tray: Optional[QSystemTrayIcon] = None
 
-        # Programmatic app icon (no external file dependency)
-        self._app_icon = _make_app_icon()
+        self.setWindowTitle("SiteGuard Monitor Pro v1.2.0")
+        self.setWindowIcon(self._icon)
+        self.setMinimumSize(900, 620)
+        self.resize(1200, 780)
+        self.setStyleSheet(STYLE)
 
-        # Window properties
-        self.setWindowTitle("SiteGuard Monitor Pro")
-        self.setWindowIcon(self._app_icon)
-        self.setMinimumSize(1000, 700)
-        self.resize(1400, 900)
-
-        # QLocalServer — listen for "show" from second-launch instances
-        self._local_server = QLocalServer(self)
+        # Local server for single-instance show
         QLocalServer.removeServer(SERVER_NAME)
+        self._local_server = QLocalServer(self)
         self._local_server.listen(SERVER_NAME)
         self._local_server.newConnection.connect(self._on_show_request)
 
-        # Build UI
-        self._apply_dark_theme()
-        self._create_menu_bar()
-        self._create_toolbar()
-        self._create_central_widget()
-        self._create_status_bar()
-        self._create_tray_icon()
+        self._build_ui()
+        self._setup_tray()
 
-        # Monitoring timer (60 seconds)
-        self.monitor_timer = QTimer(self)
-        self.monitor_timer.timeout.connect(self._start_monitoring_thread)
-        self.monitor_timer.start(60_000)
+        # Auto-refresh every 60 sec
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._run_monitor)
+        self._timer.start(60_000)
 
-        # License check timer (24 hours)
-        self.license_timer = QTimer(self)
-        self.license_timer.timeout.connect(self._check_license)
-        self.license_timer.start(86_400_000)
+        # Initial data load after window is shown
+        QTimer.singleShot(500, self._initial_load)
 
-        # Initial load after 1 second
-        QTimer.singleShot(1000, self._initial_load)
+    # ------------------------------------------------------------------
+    # UI Build
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        # Menu bar
+        mb = self.menuBar()
 
-    # ==================================================================
-    # Local site storage  (%APPDATA%/SiteGuard Monitor/sites.json)
-    # ==================================================================
-    def _get_sites_file(self) -> Path:
-        base = os.getenv("APPDATA", str(Path.home()))
-        return Path(base) / "SiteGuard Monitor" / "sites.json"
-
-    def _load_sites(self) -> List[str]:
-        f = self._get_sites_file()
-        if f.exists():
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    return [str(d) for d in data]
-            except Exception:
-                logger.warning("Could not read sites.json")
-        return []
-
-    def _save_sites(self, domains: List[str]):
-        f = self._get_sites_file()
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps(domains, indent=2), encoding="utf-8")
-
-    # ==================================================================
-    # Theme
-    # ==================================================================
-    def _apply_dark_theme(self):
-        self.setStyleSheet(
-            """
-            QMainWindow {
-                background-color: #0f0f23;
-            }
-            QWidget {
-                background-color: #0f0f23;
-                color: #e0e0e0;
-                font-family: 'Segoe UI', Arial, sans-serif;
-            }
-            QTabWidget::pane {
-                background-color: #1a1a2e;
-                border: 1px solid #2a2a5e;
-                border-radius: 8px;
-            }
-            QTabBar::tab {
-                background-color: #16213e;
-                color: #a0a0b0;
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                font-size: 13px;
-            }
-            QTabBar::tab:selected {
-                background-color: #1a1a2e;
-                color: #ffffff;
-                font-weight: bold;
-            }
-            QTabBar::tab:hover {
-                background-color: #1a2745;
-            }
-            QMenuBar {
-                background-color: #0a0a1a;
-                color: #e0e0e0;
-                border-bottom: 1px solid #2a2a5e;
-                padding: 4px;
-            }
-            QMenuBar::item:selected {
-                background-color: #4a90d9;
-                border-radius: 4px;
-            }
-            QMenu {
-                background-color: #16213e;
-                color: #e0e0e0;
-                border: 1px solid #2a2a5e;
-            }
-            QMenu::item:selected {
-                background-color: #4a90d9;
-            }
-            QToolBar {
-                background-color: #0a0a1a;
-                border-bottom: 1px solid #2a2a5e;
-                spacing: 5px;
-                padding: 5px;
-            }
-            QStatusBar {
-                background-color: #0a0a1a;
-                color: #a0a0b0;
-                border-top: 1px solid #2a2a5e;
-            }
-            QPushButton {
-                background-color: #4a90d9;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #5aa0e9;
-            }
-            QPushButton:pressed {
-                background-color: #3a80c9;
-            }
-            QScrollBar:vertical {
-                background: #0f0f23;
-                width: 10px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255,255,255,0.2);
-                border-radius: 5px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255,255,255,0.3);
-            }
-            """
-        )
-
-    # ==================================================================
-    # Menu bar
-    # ==================================================================
-    def _create_menu_bar(self):
-        menubar = self.menuBar()
-
-        # -- File --
-        file_menu = menubar.addMenu("File")
-
-        add_site_action = QAction("Add Site", self)
-        add_site_action.setShortcut("Ctrl+N")
-        add_site_action.triggered.connect(self._show_add_site)
-        file_menu.addAction(add_site_action)
-
-        remove_site_action = QAction("Remove Site", self)
-        remove_site_action.triggered.connect(self._show_remove_site)
-        file_menu.addAction(remove_site_action)
-
+        file_menu = mb.addMenu("Файл")
+        act_add = QAction("Добавить сайты…", self)
+        act_add.setShortcut("Ctrl+N")
+        act_add.triggered.connect(self._add_sites_dialog)
+        file_menu.addAction(act_add)
         file_menu.addSeparator()
+        act_quit = QAction("Выход", self)
+        act_quit.setShortcut("Ctrl+Q")
+        act_quit.triggered.connect(self._quit)
+        file_menu.addAction(act_quit)
 
-        export_action = QAction("Export Report", self)
-        export_action.setShortcut("Ctrl+E")
-        export_action.triggered.connect(self._export_report)
-        file_menu.addAction(export_action)
+        license_menu = mb.addMenu("Лицензия")
+        act_activate = QAction("Активировать / сменить ключ…", self)
+        act_activate.triggered.connect(self._activate_license)
+        license_menu.addAction(act_activate)
+        act_license_info = QAction("Информация о лицензии", self)
+        act_license_info.triggered.connect(self._show_license_info)
+        license_menu.addAction(act_license_info)
 
-        file_menu.addSeparator()
+        monitor_menu = mb.addMenu("Мониторинг")
+        act_check = QAction("Проверить сейчас", self)
+        act_check.setShortcut("F5")
+        act_check.triggered.connect(self._run_monitor_forced)
+        monitor_menu.addAction(act_check)
+        act_remove = QAction("Удалить сайт…", self)
+        act_remove.triggered.connect(self._remove_site_dialog)
+        monitor_menu.addAction(act_remove)
 
-        exit_action = QAction("Exit", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self._quit_app)
-        file_menu.addAction(exit_action)
+        # Toolbar
+        tb = self.addToolBar("Главная")
+        tb.setMovable(False)
+        tb.setIconSize(QSize(16, 16))
 
-        # -- Monitoring --
-        monitor_menu = menubar.addMenu("Monitoring")
+        btn_add = QPushButton("  + Добавить сайты")
+        btn_add.clicked.connect(self._add_sites_dialog)
+        tb.addWidget(btn_add)
 
-        check_all_action = QAction("Check All Sites", self)
-        check_all_action.setShortcut("F5")
-        check_all_action.triggered.connect(self._check_all_now)
-        monitor_menu.addAction(check_all_action)
+        tb.addSeparator()
 
-        monitor_menu.addSeparator()
+        btn_check = QPushButton("  ↻ Проверить")
+        btn_check.clicked.connect(self._run_monitor_forced)
+        tb.addWidget(btn_check)
 
-        self.pause_action = QAction("Pause Monitoring", self)
-        self.pause_action.setCheckable(True)
-        self.pause_action.triggered.connect(self._toggle_pause)
-        monitor_menu.addAction(self.pause_action)
+        tb.addSeparator()
 
-        # -- Settings --
-        settings_menu = menubar.addMenu("Settings")
-
-        settings_action = QAction("Preferences", self)
-        settings_action.setShortcut("Ctrl+,")
-        settings_action.triggered.connect(self._show_settings)
-        settings_menu.addAction(settings_action)
-
-        notifications_action = QAction("Notifications", self)
-        notifications_action.triggered.connect(self._show_notification_settings)
-        settings_menu.addAction(notifications_action)
-
-        settings_menu.addSeparator()
-
-        license_action = QAction("License", self)
-        license_action.triggered.connect(self._show_license_info)
-        settings_menu.addAction(license_action)
-
-        # -- Help --
-        help_menu = menubar.addMenu("Help")
-
-        docs_action = QAction("Documentation", self)
-        docs_action.triggered.connect(self._open_docs)
-        help_menu.addAction(docs_action)
-
-        about_action = QAction("About", self)
-        about_action.triggered.connect(self._show_about)
-        help_menu.addAction(about_action)
-
-    # ==================================================================
-    # Toolbar
-    # ==================================================================
-    def _create_toolbar(self):
-        toolbar = QToolBar()
-        toolbar.setIconSize(QSize(24, 24))
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-
-        add_btn = QPushButton("Add Site")
-        add_btn.clicked.connect(self._show_add_site)
-        toolbar.addWidget(add_btn)
-
-        toolbar.addSeparator()
-
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self._check_all_now)
-        toolbar.addWidget(refresh_btn)
-
-        check_btn = QPushButton("Check All")
-        check_btn.clicked.connect(self._check_all_now)
-        toolbar.addWidget(check_btn)
-
-        toolbar.addSeparator()
-
-        # License status label
-        self.license_status_label = QLabel("License: loading...")
-        self.license_status_label.setStyleSheet("padding: 5px 10px; font-size: 12px;")
-        toolbar.addWidget(self.license_status_label)
+        btn_license = QPushButton("  🔑 Лицензия")
+        btn_license.clicked.connect(self._activate_license)
+        tb.addWidget(btn_license)
 
         # Spacer
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
+        tb.addWidget(spacer)
 
-        # Last update time
-        self.last_update_label = QLabel("Updated: --")
-        self.last_update_label.setStyleSheet("color: #888; font-size: 12px; padding-right: 10px;")
-        toolbar.addWidget(self.last_update_label)
+        self._license_label = QLabel("Лицензия: загрузка…")
+        self._license_label.setStyleSheet(f"color:{TEXT_DIM}; padding:0 12px;")
+        tb.addWidget(self._license_label)
 
-    # ==================================================================
-    # Central widget (tabs)
-    # ==================================================================
-    def _create_central_widget(self):
+        # Central widget
         central = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 5, 10, 5)
-
-        self.tabs = QTabWidget()
-
-        self.dashboard = DashboardWidget(self)
-        self.dashboard.site_selected.connect(self._on_site_selected)
-        self.tabs.addTab(self.dashboard, "Dashboard")
-
-        self.site_detail = SiteDetailWidget(self)
-        self.tabs.addTab(self.site_detail, "Site Details")
-
-        layout.addWidget(self.tabs)
-        central.setLayout(layout)
         self.setCentralWidget(central)
+        vbox = QVBoxLayout(central)
+        vbox.setContentsMargins(12, 12, 12, 8)
+        vbox.setSpacing(10)
 
-    # ==================================================================
-    # Status bar
-    # ==================================================================
-    def _create_status_bar(self):
-        self.statusBar().showMessage("Ready")
-        self.connection_label = QLabel("Offline-first mode")
-        self.connection_label.setStyleSheet("color: #00e676; padding-right: 10px;")
-        self.statusBar().addPermanentWidget(self.connection_label)
+        # Stats bar
+        self._stats_bar = self._build_stats_bar()
+        vbox.addWidget(self._stats_bar)
 
-    # ==================================================================
-    # System tray icon
-    # ==================================================================
-    def _create_tray_icon(self):
+        # Sites table
+        self._table = self._build_table()
+        vbox.addWidget(self._table, stretch=1)
+
+        # Bottom status
+        self._last_check_label = QLabel("Последняя проверка: —")
+        self._last_check_label.setStyleSheet(f"color:{TEXT_DIM}; font-size:11px;")
+        vbox.addWidget(self._last_check_label)
+
+        # Status bar
+        self.statusBar().showMessage("Готово")
+
+    def _build_stats_bar(self) -> QWidget:
+        w = QWidget()
+        w.setFixedHeight(80)
+        h = QHBoxLayout(w)
+        h.setSpacing(12)
+        h.setContentsMargins(0, 0, 0, 0)
+
+        self._stat_total  = self._stat_box("Сайтов", "0", "#1565C0")
+        self._stat_online = self._stat_box("Онлайн", "0", GREEN)
+        self._stat_offline= self._stat_box("Офлайн", "0", RED)
+        self._stat_avg    = self._stat_box("Ср. время", "—", "#9C27B0")
+
+        h.addWidget(self._stat_total)
+        h.addWidget(self._stat_online)
+        h.addWidget(self._stat_offline)
+        h.addWidget(self._stat_avg)
+        h.addStretch()
+        return w
+
+    def _stat_box(self, title: str, value: str, color: str) -> QLabel:
+        lbl = QLabel(f"<b style='font-size:22px;color:{color}'>{value}</b><br>"
+                     f"<span style='color:{TEXT_DIM};font-size:11px'>{title}</span>")
+        lbl.setObjectName("stat_box")
+        lbl.setFixedSize(130, 70)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        return lbl
+
+    def _build_table(self) -> QTableWidget:
+        t = QTableWidget(0, 6)
+        t.setHorizontalHeaderLabels(["Домен", "Статус", "Код", "Время (мс)", "SSL (дней)", "Проверка"])
+        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for i in range(1, 6):
+            t.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        t.setAlternatingRowColors(True)
+        t.setStyleSheet(t.styleSheet() + "QTableWidget{alternate-background-color:#151528;}")
+        t.verticalHeader().setVisible(False)
+        return t
+
+    # ------------------------------------------------------------------
+    # Tray
+    # ------------------------------------------------------------------
+    def _setup_tray(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
-            self.tray = None
             return
+        self._tray = QSystemTrayIcon(self._icon, self)
+        self._tray.setToolTip("SiteGuard Monitor Pro")
 
-        self.tray = QSystemTrayIcon(self)
-        self.tray.setIcon(self._app_icon)
-        self.tray.setToolTip("SiteGuard Monitor Pro")
+        menu = QMenu()
+        menu.setStyleSheet("background:#1a1a2e; color:#e0e0e0; border:1px solid #333;")
+        act_show = menu.addAction("Показать окно")
+        act_show.triggered.connect(self._bring_to_front)
+        menu.addSeparator()
+        act_check = menu.addAction("Проверить сейчас")
+        act_check.triggered.connect(self._run_monitor_forced)
+        menu.addSeparator()
+        act_quit = menu.addAction("Выход")
+        act_quit.triggered.connect(self._quit)
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
 
-        tray_menu = QMenu()
-        show_action = tray_menu.addAction("Show Window")
-        show_action.triggered.connect(self._show_from_tray)
-        tray_menu.addSeparator()
-        check_action = tray_menu.addAction("Check All Sites")
-        check_action.triggered.connect(self._check_all_now)
-        tray_menu.addSeparator()
-        quit_action = tray_menu.addAction("Quit")
-        quit_action.triggered.connect(self._quit_app)
-
-        self.tray.setContextMenu(tray_menu)
-        self.tray.activated.connect(self._on_tray_activated)
-        self.tray.show()
-
-    # ==================================================================
-    # Monitoring (background QThread)
-    # ==================================================================
-    def _initial_load(self):
-        self._update_license_status()
-        self._refresh_table()
-        self._start_monitoring_thread()
-
-    def _start_monitoring_thread(self):
-        """Launch a background thread to check all sites."""
-        if self._monitor_thread and self._monitor_thread.isRunning():
-            return  # already running
-
-        domains = self._load_sites()
-        if not domains:
-            self._refresh_table()
-            return
-
-        self._monitor_thread = QThread()
-        self._monitor_worker = MonitorWorker(domains)
-        self._monitor_worker.moveToThread(self._monitor_thread)
-
-        self._monitor_thread.started.connect(self._monitor_worker.run)
-        self._monitor_worker.results_ready.connect(self._on_monitor_results)
-        self._monitor_worker.finished.connect(self._monitor_thread.quit)
-        self._monitor_worker.finished.connect(self._monitor_worker.deleteLater)
-        self._monitor_thread.finished.connect(self._monitor_thread.deleteLater)
-
-        self.statusBar().showMessage("Checking sites...")
-        self._monitor_thread.start()
-
-    def _on_monitor_results(self, results: dict):
-        """Called in the main thread when background check completes."""
-        self._site_status.update(results)
-        self._refresh_table()
-        self.last_update_label.setText(
-            f"Updated: {datetime.now().strftime('%H:%M:%S')}"
-        )
-        total = len(self._load_sites())
-        up = sum(1 for v in results.values() if v.get("up"))
-        self.statusBar().showMessage(
-            f"Check complete \u2014 {total} sites, {up} online"
-        )
-
-    def _refresh_table(self):
-        """Redraw the dashboard table from current local data."""
-        domains = self._load_sites()
-        self.dashboard.update_from_status(domains, self._site_status)
-
-    # ==================================================================
-    # Event handlers
-    # ==================================================================
-    def _on_site_selected(self, domain: str):
-        info = self._site_status.get(domain)
-        if info:
-            self.site_detail.update_from_status(domain, info)
-            self.tabs.setCurrentIndex(1)
+    def _bring_to_front(self):
+        if self.isMinimized():
+            self.showNormal()
         else:
-            self.statusBar().showMessage(f"No data yet for {domain}")
-
-    def _show_add_site(self):
-        domain, ok = QInputDialog.getText(
-            self, "Add Site", "Domain (e.g. example.com):"
-        )
-        domain = domain.strip().lower() if ok else ""
-        if not domain:
-            return
-
-        # Strip protocol if user included it
-        for prefix in ("https://", "http://"):
-            if domain.startswith(prefix):
-                domain = domain[len(prefix):]
-        domain = domain.rstrip("/")
-
-        sites = self._load_sites()
-        if domain in sites:
-            QMessageBox.information(self, "Duplicate", f"{domain} is already monitored.")
-            return
-
-        sites.append(domain)
-        self._save_sites(sites)
-        self._refresh_table()
-        self.statusBar().showMessage(f"Added {domain}")
-        # Trigger an immediate check
-        self._start_monitoring_thread()
-
-    def _show_remove_site(self):
-        sites = self._load_sites()
-        if not sites:
-            QMessageBox.information(self, "Remove Site", "No sites to remove.")
-            return
-
-        domain, ok = QInputDialog.getItem(
-            self, "Remove Site", "Select site:", sites, editable=False
-        )
-        if ok and domain:
-            sites.remove(domain)
-            self._save_sites(sites)
-            self._site_status.pop(domain, None)
-            self._refresh_table()
-            self.statusBar().showMessage(f"Removed {domain}")
-
-    def _check_all_now(self):
-        self._start_monitoring_thread()
-
-    def _toggle_pause(self, paused: bool):
-        if paused:
-            self.monitor_timer.stop()
-            self.statusBar().showMessage("Monitoring paused")
-            self.pause_action.setText("Resume Monitoring")
-        else:
-            self.monitor_timer.start(60_000)
-            self.statusBar().showMessage("Monitoring resumed")
-            self.pause_action.setText("Pause Monitoring")
-            self._start_monitoring_thread()
-
-    def _show_settings(self):
-        QMessageBox.information(self, "Settings", "Settings dialog \u2014 coming soon.")
-
-    def _show_notification_settings(self):
-        QMessageBox.information(self, "Notifications", "Notification settings \u2014 coming soon.")
-
-    def _show_license_info(self):
-        info = self.license_manager.get_license_info()
-        if info:
-            plan = info.get("plan", "Unknown")
-            days = info.get("days_remaining", 0)
-            max_sites = info.get("max_sites", 0)
-            key = info.get("license_key", "")
-            masked = key[:8] + "****-****-" + key[-5:] if len(key) > 15 else key
-            QMessageBox.information(
-                self,
-                "License",
-                f"Key: {masked}\n"
-                f"Plan: {plan}\n"
-                f"Remaining: {days} days\n"
-                f"Max Sites: {max_sites}",
-            )
-        else:
-            QMessageBox.warning(self, "License", "Could not retrieve license information.")
-
-    def _update_license_status(self):
-        info = self.license_manager.get_license_info()
-        if info:
-            plan = info.get("plan", "?")
-            days = info.get("days_remaining", 0)
-            if days < 10:
-                color = "#ff6b6b"
-            elif days <= 30:
-                color = "#ff9100"
-            else:
-                color = "#00e676"
-            text = f"{plan} \u2014 {days}d remaining"
-            self.license_status_label.setText(text)
-            self.license_status_label.setStyleSheet(
-                f"color: {color}; padding: 5px 10px; font-size: 12px;"
-            )
-        else:
-            self.license_status_label.setText("License: not found")
-            self.license_status_label.setStyleSheet(
-                "color: #ff6b6b; padding: 5px 10px;"
-            )
-
-    def _check_license(self):
-        is_valid = self.license_manager.validate()
-        if not is_valid:
-            QMessageBox.critical(
-                self,
-                "License",
-                "License is invalid!\n\nPlease renew your license to continue.",
-            )
-        self._update_license_status()
-
-    def _export_report(self):
-        filepath, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Report",
-            f"siteguard_report_{datetime.now().strftime('%Y%m%d')}.json",
-            "JSON (*.json);;HTML (*.html)",
-        )
-        if not filepath:
-            return
-        domains = self._load_sites()
-        report = {
-            "generated": datetime.now().isoformat(),
-            "sites": {d: self._site_status.get(d, {}) for d in domains},
-        }
-        try:
-            Path(filepath).write_text(
-                json.dumps(report, indent=2, default=str), encoding="utf-8"
-            )
-            QMessageBox.information(self, "Export", f"Report saved: {filepath}")
-        except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
-
-    def _open_docs(self):
-        import webbrowser
-        webbrowser.open("https://siteguard.app/docs")
-
-    def _show_about(self):
-        QMessageBox.about(
-            self,
-            "About",
-            "<h2>SiteGuard Monitor Pro</h2>"
-            "<p>Version 1.1.3</p>"
-            "<p>24/7 Offline-First Site Monitoring</p>"
-            "<p>&copy; 2024 SiteGuard. All rights reserved.</p>"
-            '<p><a href="https://siteguard.app">siteguard.app</a></p>',
-        )
-
-    # -- Tray / single-instance helpers --
-    def _show_from_tray(self):
-        self.show()
-        self.setWindowState(
-            (self.windowState() & ~Qt.WindowState.WindowMinimized)
-            | Qt.WindowState.WindowActive
-        )
+            self.show()
         self.raise_()
         self.activateWindow()
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            self._show_from_tray()
+            self._bring_to_front()
 
+    # ------------------------------------------------------------------
+    # Single instance
+    # ------------------------------------------------------------------
     def _on_show_request(self):
-        """Handle 'show' command from a second-launch instance via QLocalSocket."""
         conn = self._local_server.nextPendingConnection()
         if conn:
             conn.waitForReadyRead(200)
             conn.disconnectFromServer()
-        self._show_from_tray()
+        self._bring_to_front()
 
-    def _quit_app(self):
-        if self._monitor_worker:
-            self._monitor_worker.stop()
-        if self.tray:
-            self.tray.hide()
-        QApplication.quit()
-
+    # ------------------------------------------------------------------
+    # Close / Quit
+    # ------------------------------------------------------------------
     def closeEvent(self, event):
-        # Always minimize to tray if available; otherwise just hide (never silently disappear)
-        if self.tray is not None:
-            self.tray.show()  # ensure tray icon is visible
-            if self.tray.isSystemTrayAvailable():
+        """X button — спрашиваем: свернуть или выйти."""
+        if self._tray and self._tray.isVisible():
+            reply = QMessageBox.question(
+                self,
+                "SiteGuard Monitor",
+                "Свернуть в трей (мониторинг продолжится) или выйти?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
                 event.ignore()
                 self.hide()
-                self.tray.showMessage(
+                self._tray.showMessage(
                     "SiteGuard Monitor",
-                    "Мониторинг продолжается в фоне. Двойной клик по иконке для открытия.",
-                    QSystemTrayIcon.MessageIcon.Information,
-                    3000,
+                    "Свёрнут в трей. Двойной клик для открытия.",
+                    QSystemTrayIcon.MessageIcon.Information, 2500,
                 )
                 return
-        # No tray — ask user
-        from PyQt6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(
-            self, "Выход",
-            "Закрыть приложение? Мониторинг остановится.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            if self._monitor_worker:
-                self._monitor_worker.stop()
-            event.accept()
+            elif reply == QMessageBox.StandardButton.No:
+                self._quit()
+            else:
+                event.ignore()
         else:
-            event.ignore()
+            reply = QMessageBox.question(
+                self, "Выход",
+                "Закрыть SiteGuard Monitor?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._quit()
+            else:
+                event.ignore()
 
+    def _quit(self):
+        if self._monitor_thread and self._monitor_thread.isRunning():
+            self._monitor_thread.stop_gracefully()
+            self._monitor_thread.wait(2000)
+        if self._tray:
+            self._tray.hide()
+        QApplication.quit()
+
+    # ------------------------------------------------------------------
+    # Data
+    # ------------------------------------------------------------------
+    def _initial_load(self):
+        self._update_license_bar()
+        self._refresh_table()
+        domains = _load_sites()
+        if domains:
+            self.statusBar().showMessage(f"Запускаем проверку {len(domains)} сайтов…")
+            self._run_monitor()
+        else:
+            self.statusBar().showMessage("Добавьте сайты для мониторинга через меню «Файл → Добавить сайты»")
+
+    def _run_monitor(self):
+        """Start background check. Only one thread at a time."""
+        domains = _load_sites()
+        if not domains:
+            return
+        if self._monitor_thread and self._monitor_thread.isRunning():
+            return
+        self._monitor_thread = MonitorThread(domains, parent=self)
+        self._monitor_thread.results_ready.connect(self._on_results)
+        self._monitor_thread.start()
+        self.statusBar().showMessage(f"Проверяем {len(domains)} сайтов…")
+
+    def _run_monitor_forced(self):
+        """Force check even if thread running."""
+        if self._monitor_thread and self._monitor_thread.isRunning():
+            self._monitor_thread.stop_gracefully()
+            self._monitor_thread.wait(1000)
+        self._run_monitor()
+
+    def _on_results(self, results: dict):
+        self._site_status.update(results)
+        self._refresh_table()
+        now = datetime.now().strftime("%H:%M:%S")
+        self._last_check_label.setText(f"Последняя проверка: {now}")
+        up = sum(1 for v in results.values() if v.get("up"))
+        total = len(results)
+        self.statusBar().showMessage(f"Проверено: {total} сайтов. Онлайн: {up}, Офлайн: {total - up}")
+
+    def _refresh_table(self):
+        domains = _load_sites()
+        self._table.setRowCount(len(domains))
+        for row, domain in enumerate(domains):
+            info = self._site_status.get(domain, {})
+            up = info.get("up")
+            code = info.get("status_code", 0)
+            ms = info.get("response_ms", 0)
+            ssl_d = info.get("ssl_days")
+            last = info.get("last_check", "—")
+
+            if up is None:
+                status_text, status_color = "⏳ Ожидание", TEXT_DIM
+            elif up:
+                status_text, status_color = "✓ Онлайн", GREEN
+            else:
+                status_text, status_color = "✗ Офлайн", RED
+
+            ms_text = f"{ms} мс" if ms else "—"
+            ssl_text = f"{ssl_d}д" if ssl_d is not None else "—"
+            code_text = str(code) if code else "—"
+
+            items = [
+                (domain, TEXT_MAIN),
+                (status_text, status_color),
+                (code_text, TEXT_DIM),
+                (ms_text, TEXT_DIM),
+                (ssl_text, YELLOW if ssl_d is not None and ssl_d < 30 else TEXT_DIM),
+                (last, TEXT_DIM),
+            ]
+            for col, (text, color) in enumerate(items):
+                item = QTableWidgetItem(text)
+                item.setForeground(QBrush(QColor(color)))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._table.setItem(row, col, item)
+
+        # Update stats
+        total = len(domains)
+        up_count = sum(1 for d in domains if self._site_status.get(d, {}).get("up") is True)
+        off_count = sum(1 for d in domains if self._site_status.get(d, {}).get("up") is False)
+        times = [self._site_status[d]["response_ms"] for d in domains if d in self._site_status and self._site_status[d].get("response_ms")]
+        avg = f"{int(sum(times)/len(times))} мс" if times else "—"
+
+        def _set_stat(lbl: QLabel, val: str, title: str, color: str):
+            lbl.setText(f"<b style='font-size:22px;color:{color}'>{val}</b><br>"
+                        f"<span style='color:{TEXT_DIM};font-size:11px'>{title}</span>")
+
+        _set_stat(self._stat_total,   str(total),    "Сайтов",   "#1565C0")
+        _set_stat(self._stat_online,  str(up_count),  "Онлайн",   GREEN)
+        _set_stat(self._stat_offline, str(off_count), "Офлайн",   RED)
+        _set_stat(self._stat_avg,     avg,            "Ср. время", "#9C27B0")
+
+    # ------------------------------------------------------------------
+    # License
+    # ------------------------------------------------------------------
+    def _update_license_bar(self):
+        info = self._lm.get_license_info()
+        if not info:
+            self._license_label.setText("⚠ Лицензия не активирована")
+            self._license_label.setStyleSheet(f"color:{YELLOW}; padding:0 12px;")
+            return
+        plan = info.get("plan", "—")
+        days = info.get("days_remaining", 0)
+        color = GREEN if days > 30 else YELLOW if days > 10 else RED
+        self._license_label.setText(f"✓ {plan}  —  {days}д")
+        self._license_label.setStyleSheet(f"color:{color}; padding:0 12px;")
+
+    def _activate_license(self):
+        dlg = LicenseDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            key = dlg.get_key()
+            if key:
+                self._lm.store_license_key(key)
+                self._update_license_bar()
+                QMessageBox.information(self, "Лицензия", f"Лицензия активирована!\nПлан: {dlg.get_plan()}")
+
+    def _show_license_info(self):
+        info = self._lm.get_license_info()
+        if not info:
+            QMessageBox.information(self, "Лицензия", "Ключ не активирован.\nИспользуйте меню Лицензия → Активировать.")
+            return
+        key = info.get("license_key", "—")
+        plan = info.get("plan", "—")
+        days = info.get("days_remaining", 0)
+        max_sites = info.get("max_sites", 0)
+        QMessageBox.information(
+            self, "Информация о лицензии",
+            f"Ключ: {key}\nПлан: {plan}\nДней осталось: {days}\nМакс. сайтов: {max_sites}"
+        )
+
+    # ------------------------------------------------------------------
+    # Site management
+    # ------------------------------------------------------------------
+    def _add_sites_dialog(self):
+        existing = _load_sites()
+        dlg = AddSitesDialog(existing, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_domains = dlg.get_domains()
+            if new_domains:
+                sites = _load_sites()
+                sites.extend(new_domains)
+                _save_sites(sites)
+                self._refresh_table()
+                self.statusBar().showMessage(f"Добавлено {len(new_domains)} сайтов")
+                # Check new sites
+                QTimer.singleShot(300, self._run_monitor)
+            else:
+                self.statusBar().showMessage("Нет новых сайтов для добавления")
+
+    def _remove_site_dialog(self):
+        sites = _load_sites()
+        if not sites:
+            QMessageBox.information(self, "Удалить", "Нет сайтов.")
+            return
+        domain, ok = QInputDialog.getItem(
+            self, "Удалить сайт", "Выберите сайт:", sites, editable=False
+        )
+        if ok and domain:
+            sites.remove(domain)
+            _save_sites(sites)
+            self._site_status.pop(domain, None)
+            self._refresh_table()
+            self.statusBar().showMessage(f"Удалён: {domain}")
