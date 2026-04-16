@@ -5,13 +5,13 @@ and license validation on start.
 """
 import sys
 import os
-import socket
 import logging
 from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QMessageBox
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap, QFont, QPainter, QColor
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -31,19 +31,21 @@ logger = logging.getLogger("SiteGuard")
 
 
 # ---------------------------------------------------------------------------
-# Single-instance lock via port binding
+# Single-instance check via QLocalSocket / QLocalServer
 # ---------------------------------------------------------------------------
-SINGLE_INSTANCE_PORT = 47392
+SERVER_NAME = "RossiSiteGuardMonitor"
 
 
-def check_single_instance() -> socket.socket | None:
-    """Ensure only one instance is running by binding a local port."""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
-        return sock  # Keep the socket open for the lifetime of the process
-    except socket.error:
-        return None
+def is_already_running() -> bool:
+    """If another instance is running, send it a 'show' command and return True."""
+    sock = QLocalSocket()
+    sock.connectToServer(SERVER_NAME)
+    if sock.waitForConnected(500):
+        sock.write(b"show")
+        sock.waitForBytesWritten(500)
+        sock.disconnectFromServer()
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +102,8 @@ def show_main_window(app: QApplication, setup_data: dict, splash: QSplashScreen)
         window.hide()
     else:
         window.show()
+        window.raise_()
+        window.activateWindow()
 
     splash.close()
     logger.info("Main window displayed")
@@ -117,16 +121,11 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("SiteGuard Monitor Pro")
     app.setOrganizationName("SiteGuard")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion("1.1.2")
 
-    # Single-instance guard
-    lock = check_single_instance()
-    if lock is None:
-        QMessageBox.warning(
-            None,
-            "SiteGuard Monitor",
-            "Application is already running!\nCheck the system tray area.",
-        )
+    # Single-instance guard: signal existing instance to show, then exit
+    if is_already_running():
+        logger.info("Another instance is running — sent show command, exiting.")
         sys.exit(0)
 
     # Splash screen

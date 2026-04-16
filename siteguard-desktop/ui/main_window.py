@@ -1,5 +1,5 @@
 """
-SiteGuard Monitor Pro - Main Application Window  (v1.1.1 — Offline-First)
+SiteGuard Monitor Pro - Main Application Window  (v1.1.2 — Offline-First)
 
 QMainWindow with menu bar, toolbar, tab widget (Dashboard + Site Details),
 status bar, system tray icon.  Background QThread monitors sites every 60 s
@@ -44,9 +44,25 @@ from PyQt6.QtWidgets import (
     QInputDialog,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal, QThread, QObject
-from PyQt6.QtGui import QAction, QColor, QFont
+from PyQt6.QtGui import QAction, QColor, QFont, QPixmap, QPainter, QIcon
+from PyQt6.QtNetwork import QLocalServer
 
 from core.license_manager import LicenseManager
+
+SERVER_NAME = "RossiSiteGuardMonitor"
+
+
+def _make_app_icon() -> QIcon:
+    """Create a simple programmatic icon (blue square with 'SG' text)."""
+    pix = QPixmap(64, 64)
+    pix.fill(QColor(0, 120, 212))
+    painter = QPainter(pix)
+    painter.setPen(QColor(255, 255, 255))
+    font = QFont("Segoe UI", 22, QFont.Weight.Bold)
+    painter.setFont(font)
+    painter.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "SG")
+    painter.end()
+    return QIcon(pix)
 
 logger = logging.getLogger("SiteGuard.MainWindow")
 
@@ -90,7 +106,7 @@ class MonitorWorker(QObject):
             try:
                 t0 = time.time()
                 req = urllib.request.Request(url, method="HEAD")
-                req.add_header("User-Agent", "SiteGuard-Monitor/1.1.1")
+                req.add_header("User-Agent", "SiteGuard-Monitor/1.1.2")
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     status_code = resp.status
                     response_ms = round((time.time() - t0) * 1000)
@@ -366,10 +382,20 @@ class MainWindow(QMainWindow):
         self._monitor_thread: QThread | None = None
         self._monitor_worker: MonitorWorker | None = None
 
+        # Programmatic app icon (no external file dependency)
+        self._app_icon = _make_app_icon()
+
         # Window properties
         self.setWindowTitle("SiteGuard Monitor Pro")
-        self.setMinimumSize(1200, 800)
+        self.setWindowIcon(self._app_icon)
+        self.setMinimumSize(1000, 700)
         self.resize(1400, 900)
+
+        # QLocalServer — listen for "show" from second-launch instances
+        self._local_server = QLocalServer(self)
+        QLocalServer.removeServer(SERVER_NAME)
+        self._local_server.listen(SERVER_NAME)
+        self._local_server.newConnection.connect(self._on_show_request)
 
         # Build UI
         self._apply_dark_theme()
@@ -665,6 +691,7 @@ class MainWindow(QMainWindow):
             return
 
         self.tray = QSystemTrayIcon(self)
+        self.tray.setIcon(self._app_icon)
         self.tray.setToolTip("SiteGuard Monitor Pro")
 
         tray_menu = QMenu()
@@ -885,20 +912,33 @@ class MainWindow(QMainWindow):
             self,
             "About",
             "<h2>SiteGuard Monitor Pro</h2>"
-            "<p>Version 1.1.1</p>"
+            "<p>Version 1.1.2</p>"
             "<p>24/7 Offline-First Site Monitoring</p>"
             "<p>&copy; 2024 SiteGuard. All rights reserved.</p>"
             '<p><a href="https://siteguard.app">siteguard.app</a></p>',
         )
 
-    # -- Tray helpers --
+    # -- Tray / single-instance helpers --
     def _show_from_tray(self):
-        self.showNormal()
+        self.show()
+        self.setWindowState(
+            (self.windowState() & ~Qt.WindowState.WindowMinimized)
+            | Qt.WindowState.WindowActive
+        )
+        self.raise_()
         self.activateWindow()
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self._show_from_tray()
+
+    def _on_show_request(self):
+        """Handle 'show' command from a second-launch instance via QLocalSocket."""
+        conn = self._local_server.nextPendingConnection()
+        if conn:
+            conn.waitForReadyRead(200)
+            conn.disconnectFromServer()
+        self._show_from_tray()
 
     def _quit_app(self):
         if self._monitor_worker:
