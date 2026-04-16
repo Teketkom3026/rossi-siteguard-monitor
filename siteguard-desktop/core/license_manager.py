@@ -1,9 +1,9 @@
 """
 SiteGuard Monitor Pro - License Manager
 
-Local license management: store license key, validate periodically,
-hardware ID generation, offline grace period tracking, and local
-setup data persistence.
+Local license management: store license key, validate via offline HMAC,
+hardware ID generation, and local setup data persistence.
+All operations are offline — no network calls.
 """
 from __future__ import annotations
 
@@ -12,20 +12,17 @@ import json
 import logging
 import os
 import platform
-import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+
+from core.license_validator import validate_key, PLAN_CONFIG
 
 logger = logging.getLogger("SiteGuard.LicenseManager")
 
-# Offline grace period in seconds (7 days)
-OFFLINE_GRACE_PERIOD = 7 * 24 * 60 * 60
-
 
 class LicenseManager:
-    """Manages license state on the local machine."""
+    """Manages license state on the local machine — fully offline."""
 
     def __init__(self):
         self._config_dir = self._get_config_dir()
@@ -55,7 +52,7 @@ class LicenseManager:
             platform.node(),
             platform.machine(),
             platform.processor(),
-            str(uuid.getnode()),  # MAC-based node
+            str(uuid.getnode()),
         ]
         raw = "|".join(components)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
@@ -69,11 +66,14 @@ class LicenseManager:
         data["license_key"] = key
         data["activated_at"] = datetime.utcnow().isoformat()
         data["hardware_id"] = self.generate_hardware_id()
-        data["last_validated"] = datetime.utcnow().isoformat()
         if license_info:
             data["license_info"] = license_info
         self._save_license_data(data)
         logger.info("License key stored successfully")
+
+    def save_license(self, key: str, validation_result: dict):
+        """Convenience helper: write license.json from a validate_key() result."""
+        self.store_license_key(key, validation_result)
 
     def get_stored_key(self) -> str | None:
         data = self._load_license_data()
@@ -86,39 +86,35 @@ class LicenseManager:
         logger.info("License cleared")
 
     # ------------------------------------------------------------------
-    # Validation
+    # Validation (offline only)
     # ------------------------------------------------------------------
     def validate(self) -> bool:
-        """
-        Validate the license. Tries server first; falls back to
-        offline grace period if server is unreachable.
-        """
+        """Validate the license using offline HMAC check."""
         data = self._load_license_data()
         key = data.get("license_key")
         if not key:
             logger.warning("No license key stored")
             return False
 
-        # Try server validation
-        try:
-            from core.api_client import APIClient
+        is_valid, _msg, info = validate_key(key)
+        if not is_valid:
+            logger.warning("License key invalid: %s", _msg)
+            return False
 
-            client = APIClient()
-            result = client.validate_license()
-            if result and result.get("valid"):
-                data["last_validated"] = datetime.utcnow().isoformat()
-                data["license_info"] = result.get("license_info", data.get("license_info", {}))
-                self._save_license_data(data)
-                logger.info("License validated online")
-                return True
-            elif result and not result.get("valid"):
-                logger.warning("License invalid per server")
-                return False
-        except Exception as e:
-            logger.warning("Could not reach server for validation: %s", e)
+        # Check expiry from stored license_info
+        stored_info = data.get("license_info", {})
+        expires_str = stored_info.get("expires")
+        if expires_str:
+            try:
+                expires_dt = datetime.fromisoformat(expires_str)
+                if datetime.utcnow() > expires_dt:
+                    logger.warning("License expired on %s", expires_str)
+                    return False
+            except (ValueError, TypeError):
+                pass
 
-        # Offline grace period
-        return self._check_offline_grace(data)
+        logger.info("License validated offline")
+        return True
 
     def validate_on_start(self) -> tuple[bool, str]:
         """
@@ -127,77 +123,70 @@ class LicenseManager:
         """
         data = self._load_license_data()
         key = data.get("license_key")
-
         if not key:
             return False, "No license key found. Please activate a license."
 
-        # Try online validation
-        try:
-            from core.api_client import APIClient
+        is_valid, error_msg, info = validate_key(key)
+        if not is_valid:
+            return False, error_msg or "License key is invalid."
 
-            client = APIClient()
-            result = client.validate_license()
-            if result is not None:
-                if result.get("valid"):
-                    data["last_validated"] = datetime.utcnow().isoformat()
-                    data["license_info"] = result.get("license_info", data.get("license_info", {}))
-                    self._save_license_data(data)
-                    return True, "License is valid"
-                else:
-                    reason = result.get("reason", "License expired or revoked")
-                    return False, reason
-        except Exception as e:
-            logger.warning("Server unreachable during startup validation: %s", e)
+        # Check expiry
+        stored_info = data.get("license_info", {})
+        expires_str = stored_info.get("expires")
+        if expires_str:
+            try:
+                expires_dt = datetime.fromisoformat(expires_str)
+                if datetime.utcnow() > expires_dt:
+                    return False, "License has expired. Please renew."
+            except (ValueError, TypeError):
+                pass
 
-        # Offline fallback
-        if self._check_offline_grace(data):
-            return True, "License valid (offline mode - grace period active)"
-        else:
-            return False, "License could not be validated and offline grace period has expired."
-
-    def _check_offline_grace(self, data: dict) -> bool:
-        """Check if we are still within the offline grace period."""
-        last_validated = data.get("last_validated")
-        if not last_validated:
-            return False
-        try:
-            last_dt = datetime.fromisoformat(last_validated)
-            elapsed = (datetime.utcnow() - last_dt).total_seconds()
-            if elapsed <= OFFLINE_GRACE_PERIOD:
-                logger.info(
-                    "Within offline grace period (%.0f/%.0f seconds)",
-                    elapsed,
-                    OFFLINE_GRACE_PERIOD,
-                )
-                return True
-            else:
-                logger.warning("Offline grace period expired")
-                return False
-        except Exception:
-            return False
+        return True, "License is valid"
 
     # ------------------------------------------------------------------
-    # License info
+    # License info (offline only)
     # ------------------------------------------------------------------
     def get_license_info(self) -> dict | None:
-        """Return locally cached license info, or fetch from server."""
+        """
+        Read license.json and return plan/expiry info using offline
+        HMAC validation. No network calls.
+        """
         data = self._load_license_data()
-        info = data.get("license_info")
+        key = data.get("license_key")
+        if not key:
+            return None
 
-        # Try refreshing from server
-        try:
-            from core.api_client import APIClient
+        is_valid, _msg, info = validate_key(key)
+        if not is_valid:
+            return None
 
-            client = APIClient()
-            server_info = client.get_license_info()
-            if server_info:
-                data["license_info"] = server_info
-                self._save_license_data(data)
-                return server_info
-        except Exception:
-            pass
+        stored_info = data.get("license_info", {})
+        plan = info.get("plan", "unknown")
+        label = info.get("label", plan.capitalize())
+        max_sites = info.get("max_sites", 0)
 
-        return info
+        # Calculate days remaining from stored expiry
+        days_remaining = 0
+        expires_str = stored_info.get("expires")
+        if expires_str:
+            try:
+                expires_dt = datetime.fromisoformat(expires_str)
+                days_remaining = max(0, (expires_dt - datetime.utcnow()).days)
+            except (ValueError, TypeError):
+                # Fallback: use plan default days
+                cfg = PLAN_CONFIG.get(plan, {})
+                days_remaining = cfg.get("days", 0)
+        else:
+            # No expiry stored — use plan default
+            cfg = PLAN_CONFIG.get(plan, {})
+            days_remaining = cfg.get("days", 0)
+
+        return {
+            "plan": label,
+            "days_remaining": days_remaining,
+            "max_sites": max_sites,
+            "license_key": key,
+        }
 
     # ------------------------------------------------------------------
     # First-run and setup data
