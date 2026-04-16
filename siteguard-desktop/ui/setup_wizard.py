@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QColor
 
-from core.api_client import APIClient
+from core.license_validator import validate_key, PLAN_CONFIG
 from core.license_manager import LicenseManager
 
 # License key pattern
@@ -324,6 +324,7 @@ class LicensePage(QWizardPage):
         pass
 
     def _activate_key(self):
+        """Офлайн-активация через HMAC. Сеть не нужна."""
         key = self.key_input.text().strip().upper()
         if not key:
             self.status_label.setText(
@@ -331,66 +332,63 @@ class LicensePage(QWizardPage):
             )
             return
 
-        if not LICENSE_KEY_RE.match(key):
+        is_valid, error, plan_info = validate_key(key)
+        if not is_valid:
             self.status_label.setText(
-                '<span style="color: #ff6b6b;">Invalid key format (SG-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX)</span>'
+                f'<span style="color: #ff6b6b;">Activation failed: {error}</span>'
             )
             return
 
-        self.activate_btn.setEnabled(False)
-        self.status_label.setText(
-            '<span style="color: #ff9100;">Activating...</span>'
-        )
+        # Build license_info from PLAN_CONFIG
+        info = {
+            "plan": plan_info.get("plan", "business"),
+            "max_sites": plan_info.get("max_sites", 100),
+            "days_remaining": 365,
+            "features": {
+                "ssl": True, "monitoring": True,
+                "ui_tests": True, "security_scan": True, "malware_scan": True,
+            },
+        }
+        label = plan_info.get("label", plan_info.get("plan", ""))
+        info["label"] = label
 
+        self._show_info(info)
+        self.wizard_ref.setup_data["license_key"] = key
+        self.wizard_ref.setup_data["license_info"] = info
+        self.license_valid = True
+        self.status_label.setText(
+            '<span style="color: #00e676;">✓ License activated!</span>'
+        )
+        self.activate_btn.setEnabled(False)
+        self.trial_btn.setEnabled(False)
         try:
-            client = APIClient()
-            result = client.activate_license(key)
-            if result and result.get("success"):
-                info = result.get("license_info", {})
-                self._show_info(info)
-                self.wizard_ref.setup_data["license_key"] = key
-                self.wizard_ref.setup_data["license_info"] = info
-                self.license_valid = True
-                self.status_label.setText(
-                    '<span style="color: #00e676;">License activated!</span>'
-                )
-                LicenseManager().store_license_key(key, info)
-            else:
-                error = (result or {}).get("error", "Unknown error")
-                self.status_label.setText(
-                    f'<span style="color: #ff6b6b;">Activation failed: {error}</span>'
-                )
-                self.activate_btn.setEnabled(True)
-        except Exception as e:
-            self.status_label.setText(
-                f'<span style="color: #ff6b6b;">Error: {e}</span>'
-            )
-            self.activate_btn.setEnabled(True)
+            LicenseManager().store_license_key(key)
+        except Exception:
+            pass
 
     def _start_trial(self):
+        """Пробный период — 100% офлайн, без сети."""
+        info = {
+            "plan": "trial",
+            "label": "Trial",
+            "max_sites": 3,
+            "days_remaining": 14,
+            "features": {"ssl": True, "monitoring": True,
+                         "ui_tests": False, "security_scan": False, "malware_scan": False},
+        }
+        self._show_info(info)
+        self.wizard_ref.setup_data["license_key"] = "TRIAL-MODE"
+        self.wizard_ref.setup_data["license_info"] = info
+        self.license_valid = True
+        self.status_label.setText(
+            '<span style="color: #00e676;">✓ 14-day trial activated!</span>'
+        )
+        self.trial_btn.setEnabled(False)
+        self.activate_btn.setEnabled(False)
         try:
-            client = APIClient()
-            result = client.activate_license("TRIAL")
-            if result and result.get("success"):
-                info = result.get("license_info", {})
-                self._show_info(info)
-                self.wizard_ref.setup_data["license_key"] = "TRIAL"
-                self.wizard_ref.setup_data["license_info"] = info
-                self.license_valid = True
-                self.status_label.setText(
-                    '<span style="color: #00e676;">14-day trial activated!</span>'
-                )
-                self.trial_btn.setEnabled(False)
-                LicenseManager().store_license_key("TRIAL", info)
-            else:
-                error = (result or {}).get("error", "Server unavailable")
-                self.status_label.setText(
-                    f'<span style="color: #ff6b6b;">Could not start trial: {error}</span>'
-                )
-        except Exception as e:
-            self.status_label.setText(
-                f'<span style="color: #ff6b6b;">Error: {e}</span>'
-            )
+            LicenseManager().store_license_key("TRIAL-MODE")
+        except Exception:
+            pass
 
     def _show_info(self, info: dict):
         self.plan_label.setText(info.get("plan", "-").upper())
