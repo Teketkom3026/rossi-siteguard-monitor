@@ -1,5 +1,5 @@
 """
-SiteGuard Monitor Pro - Main Application Window  (v1.1.2 — Offline-First)
+SiteGuard Monitor Pro - Main Application Window  (v1.1.3 — Offline-First)
 
 QMainWindow with menu bar, toolbar, tab widget (Dashboard + Site Details),
 status bar, system tray icon.  Background QThread monitors sites every 60 s
@@ -49,7 +49,7 @@ from PyQt6.QtNetwork import QLocalServer
 
 from core.license_manager import LicenseManager
 
-SERVER_NAME = "RossiSiteGuardMonitor"
+SERVER_NAME = "RossiSiteGuardMonitor_v2"
 
 
 def _make_app_icon() -> QIcon:
@@ -106,7 +106,7 @@ class MonitorWorker(QObject):
             try:
                 t0 = time.time()
                 req = urllib.request.Request(url, method="HEAD")
-                req.add_header("User-Agent", "SiteGuard-Monitor/1.1.2")
+                req.add_header("User-Agent", "SiteGuard-Monitor/1.1.3")
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     status_code = resp.status
                     response_ms = round((time.time() - t0) * 1000)
@@ -912,7 +912,7 @@ class MainWindow(QMainWindow):
             self,
             "About",
             "<h2>SiteGuard Monitor Pro</h2>"
-            "<p>Version 1.1.2</p>"
+            "<p>Version 1.1.3</p>"
             "<p>24/7 Offline-First Site Monitoring</p>"
             "<p>&copy; 2024 SiteGuard. All rights reserved.</p>"
             '<p><a href="https://siteguard.app">siteguard.app</a></p>',
@@ -948,16 +948,31 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
     def closeEvent(self, event):
-        if self.tray and self.tray.isVisible():
-            self.hide()
-            self.tray.showMessage(
-                "SiteGuard Monitor",
-                "Application minimized to tray. Monitoring continues.",
-                QSystemTrayIcon.MessageIcon.Information,
-                2000,
-            )
-            event.ignore()
-        else:
+        # Always minimize to tray if available; otherwise just hide (never silently disappear)
+        if self.tray is not None:
+            self.tray.show()  # ensure tray icon is visible
+            if self.tray.isSystemTrayAvailable():
+                event.ignore()
+                self.hide()
+                self.tray.showMessage(
+                    "SiteGuard Monitor",
+                    "Мониторинг продолжается в фоне. Двойной клик по иконке для открытия.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000,
+                )
+                return
+        # No tray — ask user
+        from PyQt6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Выход",
+            "Закрыть приложение? Мониторинг остановится.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
             if self._monitor_worker:
                 self._monitor_worker.stop()
             event.accept()
+        else:
+            event.ignore()
+
