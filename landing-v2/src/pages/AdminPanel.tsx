@@ -132,22 +132,106 @@ const demoLicenses: License[] = [
 const ADMIN_LOGIN = 'admin'
 const ADMIN_PASSWORD = 'SiteGuard2024Admin!'
 
+// --------------- RATE LIMIT (client-side, sessionStorage) ---------------
+const RL_KEY = 'sg_admin_rl'
+const MAX_ATTEMPTS = 5
+const LOCKOUT_MS = 10 * 60 * 1000 // 10 minutes
+
+interface RLState {
+  attempts: number
+  lockedUntil: number | null
+}
+
+function getRLState(): RLState {
+  try {
+    const raw = sessionStorage.getItem(RL_KEY)
+    if (raw) return JSON.parse(raw) as RLState
+  } catch {}
+  return { attempts: 0, lockedUntil: null }
+}
+
+function setRLState(state: RLState): void {
+  try { sessionStorage.setItem(RL_KEY, JSON.stringify(state)) } catch {}
+}
+
+function recordFailedAttempt(): RLState {
+  const state = getRLState()
+  // Reset if previous lockout has expired
+  if (state.lockedUntil && Date.now() > state.lockedUntil) {
+    const fresh = { attempts: 1, lockedUntil: null }
+    setRLState(fresh)
+    return fresh
+  }
+  const attempts = state.attempts + 1
+  const lockedUntil = attempts >= MAX_ATTEMPTS ? Date.now() + LOCKOUT_MS : null
+  const next = { attempts, lockedUntil }
+  setRLState(next)
+  return next
+}
+
+function resetRLState(): void {
+  try { sessionStorage.removeItem(RL_KEY) } catch {}
+}
+
+function formatLockRemaining(until: number): string {
+  const secs = Math.max(0, Math.ceil((until - Date.now()) / 1000))
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return m > 0 ? `${m} мин ${s} сек` : `${s} сек`
+}
+
 // --------------- LOGIN SCREEN ---------------
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
+  const [lockedUntil, setLockedUntil] = useState<number | null>(() => {
+    const s = getRLState()
+    if (s.lockedUntil && Date.now() < s.lockedUntil) return s.lockedUntil
+    return null
+  })
+  const [, forceUpdate] = useState(0)
+
+  // Countdown tick while locked
+  useState(() => {
+    if (!lockedUntil) return
+    const id = setInterval(() => {
+      if (Date.now() >= (lockedUntil ?? 0)) {
+        setLockedUntil(null)
+        resetRLState()
+        clearInterval(id)
+      }
+      forceUpdate(n => n + 1)
+    }, 1000)
+    return () => clearInterval(id)
+  })
+
+  const isLocked = lockedUntil !== null && Date.now() < lockedUntil
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (isLocked) return
+
     if (login === ADMIN_LOGIN && password === ADMIN_PASSWORD) {
+      resetRLState()
       setError('')
+      setAttemptsLeft(null)
       onLogin()
     } else if (!login || !password) {
       setError('Введите логин и пароль')
     } else {
-      setError('Неверный логин или пароль')
+      const rl = recordFailedAttempt()
+      if (rl.lockedUntil) {
+        setLockedUntil(rl.lockedUntil)
+        setError('')
+        setAttemptsLeft(null)
+      } else {
+        const left = MAX_ATTEMPTS - rl.attempts
+        setAttemptsLeft(left)
+        setError(`Неверный логин или пароль. Осталось попыток: ${left}`)
+      }
     }
   }
 
@@ -204,14 +288,41 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             </div>
           </div>
 
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+          {/* Lockout banner */}
+          {isLocked && lockedUntil && (
+            <div className="rounded-xl bg-red-950/60 border border-red-500/30 px-4 py-3 text-center">
+              <p className="text-red-400 text-xs font-mono font-semibold">
+                Доступ заблокирован
+              </p>
+              <p className="text-red-300/70 text-xs mt-1">
+                Повторите через: {formatLockRemaining(lockedUntil)}
+              </p>
+            </div>
+          )}
+
+          {/* Error message */}
+          {!isLocked && error && (
+            <p className="text-red-400 text-xs">{error}</p>
+          )}
+
+          {/* Attempts warning */}
+          {!isLocked && attemptsLeft !== null && attemptsLeft <= 2 && (
+            <p className="text-amber-400/80 text-xs">
+              Осторожно: после {attemptsLeft} неудачных попытки IP будет заблокирован на 10 мин
+            </p>
+          )}
 
           <button
             type="submit"
-            className="glow-btn w-full mt-2 text-sm cursor-pointer"
+            disabled={isLocked}
+            className={`glow-btn w-full mt-2 text-sm ${
+              isLocked
+                ? 'opacity-40 cursor-not-allowed'
+                : 'cursor-pointer'
+            }`}
             data-testid="button-login"
           >
-            Войти
+            {isLocked ? 'Заблокировано' : 'Войти'}
           </button>
         </form>
 
